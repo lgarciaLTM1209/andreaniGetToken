@@ -139,6 +139,176 @@ async function getAndreaniToken(email, password) {
   }
 }
 
+async function getSucursalId(email, password, cp) {
+  let browser;
+  let page;
+  let bearerToken = null;
+  let ubicacionesPath = null;
+
+  try {
+    browser = await puppeteer.launch({
+      headless: false,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--start-maximized"],
+      defaultViewport: null,
+    });
+
+    page = await browser.newPage();
+
+    await page.setRequestInterception(true);
+    page.on("request", (request) => {
+      const url = request.url();
+      const headers = request.headers();
+
+      if (
+        url.includes("/api/v1/Sucursal/GetUbicacionesSucursales") &&
+        headers.authorization?.startsWith("Bearer")
+      ) {
+        bearerToken = headers.authorization;
+        console.log("✅ Bearer Token capturado:", bearerToken);
+      }
+
+      if (
+        url.includes("/api/v1/Sucursal/GetUbicacionesSucursales/") &&
+        url.includes("?esOrigen=false")
+      ) {
+        const base = "/api/v1/Sucursal/GetUbicacionesSucursales/";
+        const index = url.indexOf(base);
+        if (index !== -1) {
+          ubicacionesPath = url.substring(index + base.length);
+          console.log("📍 Path capturado:", ubicacionesPath);
+        }
+      }
+
+      request.continue();
+    });
+
+    // Login
+    console.log("🔵 Login...");
+    await page.goto("https://onboarding.andreani.com/", {
+      waitUntil: "networkidle2",
+    });
+
+    await page.waitForSelector("#signInName", { visible: true });
+    await page.type("#signInName", email);
+    await page.type("#password", password);
+    await page.click("#next");
+    await page.waitForNavigation({ waitUntil: "networkidle2" });
+
+    // Hacer envío → Paquetes
+    await page.waitForSelector("#hacer_envio", { visible: true });
+    await page.click("#hacer_envio");
+
+    await page.waitForFunction(() => {
+      return [...document.querySelectorAll("div.MuiCard-root")].some(
+        (card) =>
+          card.innerText.includes("Paquetes") &&
+          card.innerText.includes("Hasta 50 kg")
+      );
+    });
+    await page.evaluate(() => {
+      const card = [...document.querySelectorAll("div.MuiCard-root")].find(
+        (card) =>
+          card.innerText.includes("Paquetes") &&
+          card.innerText.includes("Hasta 50 kg")
+      );
+      if (card) card.click();
+    });
+
+    // ORIGEN
+    console.log("🟠 Esperando sucursal origen preseleccionada...");
+    await page.waitForFunction(() =>
+      document.querySelector(
+        '[data-testid="branch-card"][data-selected="true"]'
+      )
+    );
+    await page.waitForSelector("#OriginBranchOffice-siguiente--paquetes", {
+      visible: true,
+    });
+    await page.click("#OriginBranchOffice-siguiente--paquetes");
+
+    // CARGA MANUAL
+    await page.waitForSelector("#carga_manual--paquetes", { visible: true });
+    await page.click("#carga_manual--paquetes");
+    await page.waitForSelector("#DataUpload-siguiente--paquetes", {
+      visible: true,
+    });
+    await page.click("#DataUpload-siguiente--paquetes");
+
+    // FORMULARIO PAQUETE
+    await page.waitForSelector("#input_alto", { visible: true });
+    await page.type("#input_alto", "1");
+    await page.type("#input_ancho", "1");
+    await page.type("#input_largo", "1");
+    await page.type("#input_peso", "1");
+    await page.type("#input_valorDeclarado", "10000");
+    await page.waitForSelector("#PackageDescription-siguiente--paquetes", {
+      visible: true,
+    });
+    await page.click("#PackageDescription-siguiente--paquetes");
+
+    // CÓDIGO POSTAL DESTINO
+    console.log("📮 Ingresando CP:", cp);
+    await page.waitForSelector('input[placeholder="Ej: 1824, Lanús Oeste"]', {
+      visible: true,
+    });
+    const input = await page.$('input[placeholder="Ej: 1824, Lanús Oeste"]');
+    await input.click({ clickCount: 3 });
+    await input.press("Backspace");
+    await input.type(cp, { delay: 80 });
+
+    // Esperar opciones y seleccionar la primera
+    await page.waitForFunction(() => {
+      const items = document.querySelectorAll("li[role='option']");
+      return items.length > 0;
+    });
+
+    await page.evaluate(() => {
+      const first = document.querySelector("li[role='option']");
+      if (first) first.click();
+    });
+
+    await page.waitForSelector("#PostalCode-siguiente--paquetes", {
+      visible: true,
+    });
+    await page.click("#PostalCode-siguiente--paquetes");
+
+    // OPCIÓN "A SUCURSAL"
+    console.log("🏁 Seleccionando 'A sucursal'...");
+    await page.waitForSelector('[data-testid="sucursal"]', { visible: true });
+    await page.evaluate(() => {
+      const sucursalDiv = document.querySelector('[data-testid="sucursal"]');
+      if (sucursalDiv) sucursalDiv.click();
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    await page.waitForSelector("#DeliveryMethod-siguiente--paquetes", {
+      visible: true,
+    });
+    await page.click("#DeliveryMethod-siguiente--paquetes");
+
+    // Esperar la request de sucursales destino
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    if (!ubicacionesPath) {
+      throw new Error("❌ No se capturó la URL de destino");
+    }
+
+    return {
+      bearerToken,
+      ubicacionesPath,
+    };
+  } catch (error) {
+    console.error("❌ Error:", error);
+    if (page) await page.screenshot({ path: "error.png" });
+    throw error;
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
 app.post("/get-andreani-token", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -164,6 +334,35 @@ app.post("/get-andreani-token", async (req, res) => {
       success: false,
       error: error.message,
       details: "Error al obtener el token de Andreani",
+    });
+  }
+});
+
+app.post("/get-sucursal-id", async (req, res) => {
+  try {
+    const { email, password, cp } = req.body;
+
+    if (!email || !password || !cp) {
+      return res.status(400).json({
+        success: false,
+        error: "Email y contraseña son requeridos",
+      });
+    }
+
+    console.log("🔵 Iniciando proceso...");
+    const id = await getSucursalId(email, password, cp);
+
+    res.json({
+      success: true,
+      id: id,
+      message: "id capturado exitosamente",
+    });
+  } catch (error) {
+    console.error("❌ Error en el endpoint:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: "Error al obtener el id de sucursal",
     });
   }
 });
