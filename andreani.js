@@ -147,9 +147,8 @@ async function getSucursalId(email, password, cp) {
 
   try {
     browser = await puppeteer.launch({
-      headless: false,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--start-maximized"],
-      defaultViewport: null,
+      headless: "shell",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
 
     page = await browser.newPage();
