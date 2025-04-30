@@ -191,7 +191,10 @@ async function getSucursalId(email, password, cp) {
     await page.type("#signInName", email);
     await page.type("#password", password);
     await page.click("#next");
-    await page.waitForNavigation({ waitUntil: "networkidle2" });
+    await page.waitForNavigation({
+      waitUntil: "networkidle2",
+      timeout: 15000,
+    });
 
     // Hacer envío → Paquetes
     await page.waitForSelector("#hacer_envio", { visible: true });
