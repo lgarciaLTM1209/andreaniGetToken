@@ -29,7 +29,11 @@ const VER_ENVIOS_RELOAD_TRIES = parseInt(
 );
 
 const HEADLESS =
-  (process.env.HEADLESS || "true").toLowerCase() === "true" ? "new" : false; // en prod: true/new
+  (process.env.HEADLESS || "false").toLowerCase() === "true" ? "new" : false; // en prod: true/new
+
+// Credenciales desde .env
+const ANDREANI_EMAIL = process.env.ANDREANI_EMAIL;
+const ANDREANI_PASSWORD = process.env.ANDREANI_PASSWORD;
 
 /* =========================
    Utils
@@ -85,6 +89,8 @@ async function tryReadTokenFromStorage(page) {
 async function launchBrowser() {
   return puppeteer.launch({
     headless: HEADLESS,
+    slowMo: HEADLESS ? 0 : 500, // Más lento para ver mejor cuando está visible
+    devtools: !HEADLESS, // Abre DevTools cuando está visible
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
@@ -406,8 +412,69 @@ app.post("/get-andreani-token", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  log(
-    `🚀 Server listening on http://0.0.0.0:${PORT} (headless=${HEADLESS}, navTimeout=${NAV_TIMEOUT_MS}ms)`
-  );
-});
+// Solo iniciar el servidor si este archivo se ejecuta directamente
+if (require.main === module) {
+  // Si se pasan argumentos de línea de comandos, ejecutar directamente
+  const args = process.argv.slice(2);
+  if (args.length === 2) {
+    const [email, password] = args;
+    log("🎯 Modo directo con argumentos: ejecutando captura de token...");
+    log(`📧 Email: ${email}`);
+
+    getBearerFromHistory(email, password)
+      .then((token) => {
+        log("✅ ¡Token capturado exitosamente!");
+        log(`🎫 Token: ${token}`);
+        process.exit(0);
+      })
+      .catch((error) => {
+        log("❌ Error:", error.message);
+        process.exit(1);
+      });
+  } else if (args.length === 1 && args[0] === "run") {
+    // Modo directo usando credenciales del .env
+    if (!ANDREANI_EMAIL || !ANDREANI_PASSWORD) {
+      log(
+        "❌ Error: ANDREANI_EMAIL y ANDREANI_PASSWORD deben estar definidos en el archivo .env"
+      );
+      log("💡 Crea un archivo .env con:");
+      log("   ANDREANI_EMAIL=tu_email@andreani.com");
+      log("   ANDREANI_PASSWORD=tu_password");
+      process.exit(1);
+    }
+
+    log("🎯 Modo directo con .env: ejecutando captura de token...");
+    log(`📧 Email: ${ANDREANI_EMAIL}`);
+
+    getBearerFromHistory(ANDREANI_EMAIL, ANDREANI_PASSWORD)
+      .then((token) => {
+        log("✅ ¡Token capturado exitosamente!");
+        log(`🎫 Token: ${token}`);
+        process.exit(0);
+      })
+      .catch((error) => {
+        log("❌ Error:", error.message);
+        process.exit(1);
+      });
+  } else {
+    // Modo servidor HTTP
+    app.listen(PORT, () => {
+      log(
+        `🚀 Server listening on http://0.0.0.0:${PORT} (headless=${HEADLESS}, navTimeout=${NAV_TIMEOUT_MS}ms)`
+      );
+      log("💡 Opciones de uso:");
+      log("   - Servidor HTTP: node andreani.js");
+      log("   - Directo con .env: node andreani.js run");
+      log(
+        "   - Directo con args: node andreani.js email@ejemplo.com password123"
+      );
+    });
+  }
+}
+
+// Exportar funciones para uso en otros scripts
+module.exports = {
+  getBearerFromHistory,
+  launchBrowser,
+  preparePage,
+};
