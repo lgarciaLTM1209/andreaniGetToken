@@ -1,490 +1,413 @@
-// index.js
-const puppeteer = require("puppeteer");
+// andreani.js
 require("dotenv").config();
 const express = require("express");
-
-const app = express();
-const port = 3000;
-app.use(express.json());
+const puppeteer = require("puppeteer");
 
 /* =========================
-   Helpers de captura token
+   Config (ENV tunables)
    ========================= */
+const PORT = parseInt(process.env.PORT || "3000", 10);
 
-function truncateToken(tok, head = 12, tail = 8) {
-  if (!tok || typeof tok !== "string") return tok;
-  if (tok.length <= head + tail + 3) return tok;
-  return tok.slice(0, head) + "..." + tok.slice(-tail);
-}
+const NAV_TIMEOUT_MS = parseInt(process.env.NAV_TIMEOUT_MS || "120000", 10);
+const STEP_TIMEOUT_MS = parseInt(process.env.STEP_TIMEOUT_MS || "60000", 10);
+
+const WAIT_AFTER_LOGIN_MS = parseInt(
+  process.env.WAIT_AFTER_LOGIN_MS || "4000",
+  10
+); // margen post-login
+const WAIT_BEFORE_VER_ENVIOS_MS = parseInt(
+  process.env.WAIT_BEFORE_VER_ENVIOS_MS || "2500",
+  10
+);
+const WAIT_AFTER_VER_ENVIOS_MS = parseInt(
+  process.env.WAIT_AFTER_VER_ENVIOS_MS || "7000",
+  10
+); // espera por requests
+const VER_ENVIOS_RELOAD_TRIES = parseInt(
+  process.env.VER_ENVIOS_RELOAD_TRIES || "3",
+  10
+);
+
+const HEADLESS =
+  (process.env.HEADLESS || "true").toLowerCase() === "true" ? "new" : false; // en prod: true/new
+
+/* =========================
+   Utils
+   ========================= */
+const log = (m, ...rest) =>
+  console.log(
+    `${new Date().toISOString().replace("T", " ").replace("Z", "")}  ${m}`,
+    ...rest
+  );
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const truncate = (s, a = 12, b = 8) =>
+  !s || s.length <= a + b + 3 ? s : `${s.slice(0, a)}...${s.slice(-b)}`;
 
 function extractAccessTokenFromUrl(urlStr) {
   try {
-    // Maneja query y fragment (#access_token=...)
-    const hasHash = urlStr.includes("#");
-    if (hasHash) {
+    if (urlStr.includes("#")) {
       const [base, hash] = urlStr.split("#");
       const fake = `${base}?${hash}`;
       const u = new URL(fake);
-      const token = u.searchParams.get("access_token");
-      return token || null;
-    } else {
-      const u = new URL(urlStr);
-      const token = u.searchParams.get("access_token");
-      return token || null;
+      return u.searchParams.get("access_token");
     }
+    const u = new URL(urlStr);
+    return u.searchParams.get("access_token");
   } catch {
     return null;
   }
 }
 
-async function waitForAccessToken(page, { timeout = 15000 } = {}) {
-  let token = null;
-  let resolveFn;
-  const done = new Promise((resolve) => (resolveFn = resolve));
-
-  // 1) Chequeo inmediato
-  const immediate = extractAccessTokenFromUrl(page.url());
-  if (immediate) return immediate;
-
-  // 2) Listeners
-  const onFrameNav = (frame) => {
-    const url = frame.url();
-    const t = extractAccessTokenFromUrl(url);
-    if (t) {
-      token = t;
-      cleanup();
-      resolveFn();
-    }
-  };
-  const onRequest = (request) => {
-    if (request.isNavigationRequest && request.isNavigationRequest()) {
-      const url = request.url();
-      const t = extractAccessTokenFromUrl(url);
-      if (t) {
-        token = t;
-        cleanup();
-        resolveFn();
-      }
-    }
-  };
-
-  page.on("framenavigated", onFrameNav);
-  page.on("request", onRequest);
-
-  const to = setTimeout(() => {
-    cleanup();
-    resolveFn();
-  }, timeout);
-
-  function cleanup() {
-    page.off("framenavigated", onFrameNav);
-    page.off("request", onRequest);
-    clearTimeout(to);
+async function tryReadTokenFromStorage(page) {
+  try {
+    const t = await page.evaluate(() => {
+      const looksJWT = (v) =>
+        typeof v === "string" && v.split(".").length === 3;
+      const pick = (store) => {
+        for (let i = 0; i < store.length; i++) {
+          const k = store.key(i);
+          const v = store.getItem(k);
+          if (looksJWT(v)) return v;
+        }
+        return null;
+      };
+      return pick(localStorage) || pick(sessionStorage) || null;
+    });
+    return t;
+  } catch {
+    return null;
   }
-
-  await done;
-  return token;
 }
 
-async function tryReadTokenFromStorage(page) {
-  const data = await page.evaluate(() => {
-    const looksJWT = (v) => typeof v === "string" && v.split(".").length === 3;
-    const out = { localStorage: {}, sessionStorage: {} };
+/* =========================
+   Browser helpers
+   ========================= */
+async function launchBrowser() {
+  return puppeteer.launch({
+    headless: HEADLESS,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--no-first-run",
+      "--no-zygote",
+      "--window-size=1366,900",
+      "--lang=es-AR,es;q=0.9,en;q=0.8",
+      "--disable-blink-features=AutomationControlled",
+    ],
+    defaultViewport: { width: 1366, height: 900 },
+  });
+}
 
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        const v = localStorage.getItem(k);
-        if (looksJWT(v)) out.localStorage[k] = v;
-      }
-    } catch (e) {}
+async function preparePage(page, bearerSink) {
+  // User-Agent e idioma
+  await page.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+  );
+  await page.setExtraHTTPHeaders({
+    "Accept-Language": "es-AR,es;q=0.9,en;q=0.8",
+  });
+  page.setDefaultNavigationTimeout(NAV_TIMEOUT_MS);
+  page.setDefaultTimeout(STEP_TIMEOUT_MS);
 
-    try {
-      for (let i = 0; i < sessionStorage.length; i++) {
-        const k = sessionStorage.key(i);
-        const v = sessionStorage.getItem(k);
-        if (looksJWT(v)) out.sessionStorage[k] = v;
-      }
-    } catch (e) {}
-
-    return out;
+  // Evitar webdriver
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, "webdriver", { get: () => false });
   });
 
-  const prefer = (obj) => {
-    const keys = Object.keys(obj);
-    const preferred = keys.find((k) =>
-      /access|token|auth|id_token|bearer|jwt/i.test(k)
-    );
-    return preferred ? obj[preferred] : keys[0] ? obj[keys[0]] : null;
-  };
+  // Canal para recibir bearer desde el contexto de la página
+  await page.exposeFunction("__pushBearerFromPage", (token) => {
+    if (token && /^Bearer\s+/i.test(token) && !bearerSink.value) {
+      bearerSink.value = token;
+      log(`✅ (page hook) Bearer: ${truncate(token)}`);
+    }
+  });
 
-  return prefer(data.localStorage) || prefer(data.sessionStorage) || null;
+  // Hookear fetch y XHR antes de que la app se cargue
+  await page.evaluateOnNewDocument(() => {
+    try {
+      // fetch
+      const _fetch = window.fetch;
+      window.fetch = async function (input, init) {
+        try {
+          let auth = null;
+          if (init && init.headers) {
+            const h = init.headers;
+            if (typeof h.get === "function") {
+              auth = h.get("authorization");
+            } else if (Array.isArray(h)) {
+              const found = h.find(
+                ([k]) => String(k).toLowerCase() === "authorization"
+              );
+              auth = found ? found[1] : null;
+            } else {
+              auth = h.authorization || h.Authorization || null;
+            }
+          }
+          if (auth && /^Bearer\s+/i.test(auth)) {
+            window.__pushBearerFromPage && window.__pushBearerFromPage(auth);
+          }
+        } catch {}
+        return _fetch.apply(this, arguments);
+      };
+
+      // XHR
+      const XHR = window.XMLHttpRequest;
+      const _open = XHR.prototype.open;
+      const _set = XHR.prototype.setRequestHeader;
+      XHR.prototype.open = function () {
+        this.__andreaniUrl = arguments[1];
+        return _open.apply(this, arguments);
+      };
+      XHR.prototype.setRequestHeader = function (name, value) {
+        try {
+          if (
+            String(name).toLowerCase() === "authorization" &&
+            /^Bearer\s+/i.test(value)
+          ) {
+            window.__pushBearerFromPage && window.__pushBearerFromPage(value);
+          }
+        } catch {}
+        return _set.apply(this, arguments);
+      };
+    } catch {}
+  });
 }
 
-/* =======================================
-   getAndreaniToken: login + captura token
-   ======================================= */
-
-async function getAndreaniToken(email, password) {
-  let browser;
-  let page;
-  let bearerToken = null;
-
-  try {
-    browser = await puppeteer.launch({
-      headless: "shell",
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
-
-    page = await browser.newPage();
-
-    // Interceptar requests para capturar Bearer por header (fallback)
-    await page.setRequestInterception(true);
-    page.on("request", async (request) => {
-      const url = request.url();
-      const headers = request.headers();
-
-      if (
-        headers.authorization &&
-        headers.authorization.startsWith("Bearer ")
-      ) {
-        bearerToken = headers.authorization;
-        console.log("✅ Bearer por header:", truncateToken(bearerToken));
-      }
-
-      // No bloquear requests de navegación
-      request.continue();
-    });
-
-    console.log("🔵 Navegando al login...");
-    await page.goto("https://onboarding.andreani.com/", {
-      waitUntil: "networkidle2",
-      timeout: 60000,
-    });
-
-    console.log("🔵 Completando login...");
-    await page.waitForSelector("#signInName", {
-      visible: true,
-      timeout: 30000,
-    });
-    await page.type("#signInName", email, { delay: 60 });
-    await page.type("#password", password, { delay: 60 });
-    await page.click("#next");
-
-    console.log("🟠 Esperando navegación post-login...");
-    await page
-      .waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 })
-      .catch(() => {});
-
-    // 👉 Captura del access_token en el salto a pymes.andreani.com
-    const tokenFromUrl = await waitForAccessToken(page, { timeout: 15000 });
-
-    if (tokenFromUrl) {
-      bearerToken = `Bearer ${tokenFromUrl}`;
-      console.log("✅ access_token de URL:", truncateToken(bearerToken));
-    } else if (page.url().includes("pymes.andreani.com")) {
-      // Intentar storage si ya limpió la URL
-      const stored = await tryReadTokenFromStorage(page);
-      if (stored) {
-        bearerToken = `Bearer ${stored}`;
-        console.log("✅ Token desde storage:", truncateToken(bearerToken));
-      } else {
-        console.warn("⚠️ No encontré token en URL ni en storage.");
-      }
-    }
-
-    // 🔁 Pausa mínima por si la app dispara XHRs con Authorization
-    await new Promise((r) => setTimeout(r, 2000));
-
-    if (!bearerToken) {
-      await page.screenshot({ path: "debug-no-token.png" });
-      throw new Error("No se pudo capturar el token de autorización");
-    }
-
-    return bearerToken;
-  } catch (error) {
-    console.error("❌ Error durante el proceso:", error);
-    if (browser && page) {
-      await page.screenshot({ path: "error-screenshot.png" });
-    }
-    throw error;
-  } finally {
-    if (browser) {
-      console.log("🔴 Cerrando navegador...");
-      await browser.close();
-    }
-  }
-}
-
-/* ====================================================
-   getSucursalId: login + token + capturar ubicaciones
-   ==================================================== */
-
-async function getSucursalId(email, password, cp) {
-  let browser;
-  let page;
-  let bearerToken = null;
-  let ubicacionesPath = null;
-
-  try {
-    browser = await puppeteer.launch({
-      headless: false, // 👈 visible
-      defaultViewport: null,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
-
-    page = await browser.newPage();
-
-    await page.setRequestInterception(true);
-    page.on("request", (request) => {
-      const url = request.url();
-      const headers = request.headers();
-
-      if (
-        headers.authorization &&
-        headers.authorization.startsWith("Bearer ")
-      ) {
-        bearerToken = headers.authorization;
-        console.log("✅ Bearer por header:", truncateToken(bearerToken));
-      }
-
-      if (
-        url.includes("/api/v1/Sucursal/GetUbicacionesSucursales/") &&
-        url.includes("?esOrigen=false")
-      ) {
-        const base = "/api/v1/Sucursal/GetUbicacionesSucursales/";
-        const index = url.indexOf(base);
-        if (index !== -1) {
-          ubicacionesPath = url.substring(index + base.length);
-          console.log("📍 Path capturado:", ubicacionesPath);
-        }
-      }
-
-      request.continue();
-    });
-
-    // Login
-    console.log("🔵 Login...");
-    await page.goto("https://onboarding.andreani.com/", {
-      waitUntil: "networkidle2",
-    });
-
-    await page.waitForSelector("#signInName", { visible: true });
-    await page.type("#signInName", email, { delay: 50 });
-    await page.type("#password", password, { delay: 50 });
-    await page.click("#next");
-    await page
-      .waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 })
-      .catch(() => {});
-
-    // 👉 Captura del token en salto a pymes
-    const tokenFromUrl = await waitForAccessToken(page, { timeout: 15000 });
-    if (tokenFromUrl) {
-      bearerToken = `Bearer ${tokenFromUrl}`;
-      console.log("✅ access_token de URL:", truncateToken(bearerToken));
-    } else if (page.url().includes("pymes.andreani.com")) {
-      const stored = await tryReadTokenFromStorage(page);
-      if (stored) {
-        bearerToken = `Bearer ${stored}`;
-        console.log("✅ Token desde storage:", truncateToken(bearerToken));
-      } else {
-        console.warn("⚠️ No encontré token en URL ni en storage.");
-      }
-    }
-
-    // Si tu flujo de “hacer envío → paquetes” ahora vive en pymes.andreani.com,
-    // ajustá los selectores. Abajo uso los que ya venías usando:
-
-    // Hacer envío
-    await page.waitForSelector("#hacer_envio", {
-      visible: true,
-      timeout: 20000,
-    });
-    await page.click("#hacer_envio");
-
-    // Card "Paquetes – Hasta 50 kg"
-    await page.waitForFunction(
-      () => {
-        const cards = document.querySelectorAll("div.MuiCard-root");
-        return [...cards].some(
-          (card) =>
-            card.innerText.includes("Paquetes") &&
-            card.innerText.includes("Hasta 50 kg")
+/* =========================
+   Home detector
+   ========================= */
+async function waitForHomeReady(page, maxMs) {
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    await Promise.race([
+      page
+        .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 800 })
+        .catch(() => null),
+      wait(250),
+    ]);
+    try {
+      const state = await page.evaluate(() => {
+        const onLogin = !!document.querySelector("#localAccountForm");
+        const hasCTA = !!(
+          document.querySelector("#ver_envios") ||
+          document.querySelector("#hacer_envio")
         );
-      },
-      { timeout: 15000 }
-    );
-    await page.evaluate(() => {
-      const cards = document.querySelectorAll("div.MuiCard-root");
-      for (const el of cards) {
-        if (
-          el.innerText.includes("Paquetes") &&
-          el.innerText.includes("Hasta 50 kg")
-        ) {
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-          el.click();
-          break;
-        }
+        const href = location.href;
+        const ready = document.readyState;
+
+        const looksJWT = (v) =>
+          typeof v === "string" && v.split(".").length === 3;
+        let storageTok = null;
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            const v = localStorage.getItem(k);
+            if (looksJWT(v)) {
+              storageTok = v;
+              break;
+            }
+          }
+          if (!storageTok) {
+            for (let i = 0; i < sessionStorage.length; i++) {
+              const k = sessionStorage.key(i);
+              const v = sessionStorage.getItem(k);
+              if (looksJWT(v)) {
+                storageTok = v;
+                break;
+              }
+            }
+          }
+        } catch {}
+
+        return { onLogin, hasCTA, href, ready, hasStorageTok: !!storageTok };
+      });
+
+      if (!state.onLogin && state.hasCTA)
+        return { ok: true, storageReady: state.hasStorageTok };
+      if (
+        /pymes\.andreani\.com/i.test(state.href) &&
+        (state.ready === "interactive" || state.ready === "complete")
+      ) {
+        return { ok: true, storageReady: state.hasStorageTok };
       }
+      if (
+        /onboarding\.andreani\.com/i.test(state.href) &&
+        state.hasStorageTok
+      ) {
+        await wait(1200);
+        return { ok: true, storageReady: true };
+      }
+    } catch {
+      await wait(300);
+    }
+  }
+  return { ok: false, storageReady: false };
+}
+
+/* =========================
+   Core: login + capturar Bearer en /ver-envios
+   ========================= */
+async function getBearerFromHistory(email, password) {
+  let browser, page;
+  const bearerRef = { value: null };
+
+  try {
+    browser = await launchBrowser();
+    page = await browser.newPage();
+    await preparePage(page, bearerRef);
+
+    // Captura por red de cualquier request con Authorization: Bearer
+    await page.setRequestInterception(true);
+    page.on("request", (req) => {
+      try {
+        const url = req.url();
+        const headers = req.headers();
+        const auth = headers.authorization || headers.Authorization;
+        if (auth && /^Bearer\s+/i.test(auth)) {
+          bearerRef.value = bearerRef.value || auth;
+          log(`✅ (net) Bearer en ${url}: ${truncate(auth)}`);
+        }
+      } catch {}
+      req.continue().catch(() => {});
     });
 
-    // ORIGEN
-    console.log("🟠 Esperando sucursal origen preseleccionada...");
-    await page.waitForFunction(() =>
-      document.querySelector(
-        '[data-testid="branch-card"][data-selected="true"]'
-      )
-    );
-    await page.waitForSelector("#OriginBranchOffice-siguiente--paquetes", {
-      visible: true,
-    });
-    await page.click("#OriginBranchOffice-siguiente--paquetes");
-
-    // CARGA MANUAL
-    await page.waitForSelector("#carga_manual--paquetes", { visible: true });
-    await page.click("#carga_manual--paquetes");
-    await page.waitForSelector("#DataUpload-siguiente--paquetes", {
-      visible: true,
-    });
-    await page.click("#DataUpload-siguiente--paquetes");
-
-    // FORMULARIO PAQUETE
-    await page.waitForSelector("#input_alto", { visible: true });
-    await page.type("#input_alto", "1");
-    await page.type("#input_ancho", "1");
-    await page.type("#input_largo", "1");
-    await page.type("#input_peso", "1");
-    await page.type("#input_valorDeclarado", "10000");
-    await page.waitForSelector("#PackageDescription-siguiente--paquetes", {
-      visible: true,
-    });
-    await page.click("#PackageDescription-siguiente--paquetes");
-
-    // CÓDIGO POSTAL DESTINO
-    console.log("📮 Ingresando CP...");
-    await page.waitForSelector('input[placeholder="Ej: 1824, Lanús Oeste"]', {
-      visible: true,
-    });
-    const input = await page.$('input[placeholder="Ej: 1824, Lanús Oeste"]');
-    await input.click({ clickCount: 3 });
-    await input.press("Backspace");
-    await input.type(String(cp), { delay: 80 });
-
-    // Seleccionar primera opción
-    await page.waitForFunction(() => {
-      const items = document.querySelectorAll("li[role='option']");
-      return items.length > 0;
-    });
-    await page.evaluate(() => {
-      const first = document.querySelector("li[role='option']");
-      if (first) first.click();
+    // 1) Login
+    log("🔵 Navegando al login…");
+    await page.goto("https://onboarding.andreani.com/", {
+      waitUntil: "domcontentloaded",
+      timeout: NAV_TIMEOUT_MS,
     });
 
-    await page.waitForSelector("#PostalCode-siguiente--paquetes", {
-      visible: true,
-    });
-    await page.click("#PostalCode-siguiente--paquetes");
+    log("🟩 Completando formulario…");
+    await page.waitForSelector("#signInName", { visible: true });
+    await page.click("#signInName", { clickCount: 3 });
+    await page.type("#signInName", email, { delay: 80 });
 
-    // OPCIÓN "A SUCURSAL"
-    console.log("🏁 Seleccionando 'A sucursal'...");
-    await page.waitForSelector('[data-testid="sucursal"]', { visible: true });
-    await page.evaluate(() => {
-      const sucursalDiv = document.querySelector('[data-testid="sucursal"]');
-      if (sucursalDiv) sucursalDiv.click();
-    });
+    await page.click("#password", { clickCount: 3 });
+    await page.type("#password", password, { delay: 80 });
 
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await page.click("#next");
 
-    await page.waitForSelector("#DeliveryMethod-siguiente--paquetes", {
-      visible: true,
-    });
-    await page.click("#DeliveryMethod-siguiente--paquetes");
+    // 2) Espera robusta de home
+    log("⏳ Esperando que cargue el home…");
+    const home = await waitForHomeReady(page, STEP_TIMEOUT_MS + 60000);
+    if (!home.ok) throw new Error("No se detectó el home post-login a tiempo");
 
-    // Esperar a que dispare la request de sucursales destino
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await wait(WAIT_AFTER_LOGIN_MS);
 
-    if (!ubicacionesPath) {
-      await page.screenshot({ path: "error-no-ubicaciones.png" });
-      throw new Error("❌ No se capturó la URL de destino (ubicacionesPath)");
+    // Si seguimos en onboarding pero ya hay token en storage, empujar a pymes
+    if (/onboarding\.andreani\.com/i.test(page.url()) && home.storageReady) {
+      log(
+        "➡️ Token listo pero seguimos en onboarding; navegando a https://pymes.andreani.com/ …"
+      );
+      await page.goto("https://pymes.andreani.com/", {
+        waitUntil: "domcontentloaded",
+        timeout: NAV_TIMEOUT_MS,
+      });
+      await wait(2000);
     }
 
-    return {
-      bearerToken,
-      ubicacionesPath,
-    };
-  } catch (error) {
-    console.error("❌ Error:", error);
-    if (page) await page.screenshot({ path: "error.png" });
-    throw error;
+    // 3) Asegurar estar en pymes y navegar a /ver-envios
+    if (!/pymes\.andreani\.com/i.test(page.url())) {
+      log("ℹ️ Forzando ir al home de pymes…");
+      await page.goto("https://pymes.andreani.com/", {
+        waitUntil: "domcontentloaded",
+        timeout: NAV_TIMEOUT_MS,
+      });
+      await wait(1500);
+    }
+
+    // 4) /ver-envios con reintentos
+    for (let i = 1; i <= VER_ENVIOS_RELOAD_TRIES && !bearerRef.value; i++) {
+      log(`➡️ Navegando a /ver-envios… (try ${i}/${VER_ENVIOS_RELOAD_TRIES})`);
+      await page.goto("https://pymes.andreani.com/ver-envios", {
+        waitUntil: "domcontentloaded",
+        timeout: NAV_TIMEOUT_MS,
+      });
+
+      // activar foco y pequeño scroll (algunas apps disparan carga al interactuar)
+      try {
+        await page.evaluate(() => {
+          window.dispatchEvent(new Event("focus"));
+          window.scrollTo(0, 1);
+          window.scrollTo(0, 0);
+        });
+      } catch {}
+
+      log("🔄 Esperando requests…");
+      await wait(WAIT_BEFORE_VER_ENVIOS_MS);
+      await page.reload({
+        waitUntil: "domcontentloaded",
+        timeout: NAV_TIMEOUT_MS,
+      });
+      await wait(WAIT_AFTER_VER_ENVIOS_MS);
+    }
+
+    // 5) Fallbacks si aún no hay Bearer
+    if (!bearerRef.value) {
+      const tokFromUrl = extractAccessTokenFromUrl(page.url());
+      if (tokFromUrl) {
+        bearerRef.value = `Bearer ${tokFromUrl}`;
+        log(`✅ Token desde URL: ${truncate(bearerRef.value)}`);
+      }
+    }
+    if (!bearerRef.value) {
+      const stored = await tryReadTokenFromStorage(page);
+      if (stored) {
+        bearerRef.value = `Bearer ${stored}`;
+        log(`✅ Token desde storage: ${truncate(bearerRef.value)}`);
+      }
+    }
+
+    if (!bearerRef.value) {
+      await page.screenshot({ path: "debug-no-bearer.png" }).catch(() => {});
+      throw new Error(
+        "No se pudo capturar el Bearer desde /ver-envios ni por fallback"
+      );
+    }
+
+    return bearerRef.value;
   } finally {
     if (browser) {
-      await browser.close();
+      log("🔴 Cerrando navegador…");
+      await browser.close().catch(() => {});
     }
   }
 }
 
-/* ======================
-   Endpoints HTTP
-   ====================== */
+/* =========================
+   HTTP Server
+   ========================= */
+const app = express();
+app.use(express.json());
+
+app.get("/healthz", (_req, res) => res.send("ok"));
+app.get("/", (_req, res) => res.send("andreani token svc"));
 
 app.post("/get-andreani-token", async (req, res) => {
   try {
-    const { email, password } = req.body;
-
+    const { email, password } = req.body || {};
     if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        error: "Email y contraseña son requeridos",
-      });
+      return res
+        .status(400)
+        .json({ success: false, error: "Email y contraseña son requeridos" });
     }
-
-    console.log("🔵 Iniciando proceso /get-andreani-token...");
-    const token = await getAndreaniToken(email, password);
-
+    const token = await getBearerFromHistory(email, password);
     res.json({
       success: true,
-      token: token,
-      message: "Token capturado exitosamente",
+      token,
+      message: "Token capturado (header/URL/storage)",
     });
-  } catch (error) {
-    console.error("❌ Error en el endpoint:", error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      details: "Error al obtener el token de Andreani",
-    });
+  } catch (e) {
+    log("❌ Error endpoint:", e);
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 
-app.post("/get-sucursal-id", async (req, res) => {
-  try {
-    const { email, password, cp } = req.body;
-
-    if (!email || !password || !cp) {
-      return res.status(400).json({
-        success: false,
-        error: "Email, contraseña y CP son requeridos",
-      });
-    }
-
-    console.log("🔵 Iniciando proceso /get-sucursal-id...");
-    const id = await getSucursalId(email, password, cp);
-
-    res.json({
-      success: true,
-      id: id,
-      message: "id capturado exitosamente",
-    });
-  } catch (error) {
-    console.error("❌ Error en el endpoint:", error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      details: "Error al obtener el id de sucursal",
-    });
-  }
-});
-
-app.listen(port, () => {
-  console.log(`🚀 Servidor escuchando en http://localhost:${port}`);
+app.listen(PORT, () => {
+  log(
+    `🚀 Server listening on http://0.0.0.0:${PORT} (headless=${HEADLESS}, navTimeout=${NAV_TIMEOUT_MS}ms)`
+  );
 });
