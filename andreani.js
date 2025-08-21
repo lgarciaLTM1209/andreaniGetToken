@@ -1,3 +1,4 @@
+// index.js
 const puppeteer = require("puppeteer");
 require("dotenv").config();
 const express = require("express");
@@ -5,6 +6,124 @@ const express = require("express");
 const app = express();
 const port = 3000;
 app.use(express.json());
+
+/* =========================
+   Helpers de captura token
+   ========================= */
+
+function truncateToken(tok, head = 12, tail = 8) {
+  if (!tok || typeof tok !== "string") return tok;
+  if (tok.length <= head + tail + 3) return tok;
+  return tok.slice(0, head) + "..." + tok.slice(-tail);
+}
+
+function extractAccessTokenFromUrl(urlStr) {
+  try {
+    // Maneja query y fragment (#access_token=...)
+    const hasHash = urlStr.includes("#");
+    if (hasHash) {
+      const [base, hash] = urlStr.split("#");
+      const fake = `${base}?${hash}`;
+      const u = new URL(fake);
+      const token = u.searchParams.get("access_token");
+      return token || null;
+    } else {
+      const u = new URL(urlStr);
+      const token = u.searchParams.get("access_token");
+      return token || null;
+    }
+  } catch {
+    return null;
+  }
+}
+
+async function waitForAccessToken(page, { timeout = 15000 } = {}) {
+  let token = null;
+  let resolveFn;
+  const done = new Promise((resolve) => (resolveFn = resolve));
+
+  // 1) Chequeo inmediato
+  const immediate = extractAccessTokenFromUrl(page.url());
+  if (immediate) return immediate;
+
+  // 2) Listeners
+  const onFrameNav = (frame) => {
+    const url = frame.url();
+    const t = extractAccessTokenFromUrl(url);
+    if (t) {
+      token = t;
+      cleanup();
+      resolveFn();
+    }
+  };
+  const onRequest = (request) => {
+    if (request.isNavigationRequest && request.isNavigationRequest()) {
+      const url = request.url();
+      const t = extractAccessTokenFromUrl(url);
+      if (t) {
+        token = t;
+        cleanup();
+        resolveFn();
+      }
+    }
+  };
+
+  page.on("framenavigated", onFrameNav);
+  page.on("request", onRequest);
+
+  const to = setTimeout(() => {
+    cleanup();
+    resolveFn();
+  }, timeout);
+
+  function cleanup() {
+    page.off("framenavigated", onFrameNav);
+    page.off("request", onRequest);
+    clearTimeout(to);
+  }
+
+  await done;
+  return token;
+}
+
+async function tryReadTokenFromStorage(page) {
+  const data = await page.evaluate(() => {
+    const looksJWT = (v) => typeof v === "string" && v.split(".").length === 3;
+    const out = { localStorage: {}, sessionStorage: {} };
+
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        const v = localStorage.getItem(k);
+        if (looksJWT(v)) out.localStorage[k] = v;
+      }
+    } catch (e) {}
+
+    try {
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const k = sessionStorage.key(i);
+        const v = sessionStorage.getItem(k);
+        if (looksJWT(v)) out.sessionStorage[k] = v;
+      }
+    } catch (e) {}
+
+    return out;
+  });
+
+  const prefer = (obj) => {
+    const keys = Object.keys(obj);
+    const preferred = keys.find((k) =>
+      /access|token|auth|id_token|bearer|jwt/i.test(k)
+    );
+    return preferred ? obj[preferred] : keys[0] ? obj[keys[0]] : null;
+  };
+
+  return prefer(data.localStorage) || prefer(data.sessionStorage) || null;
+}
+
+/* =======================================
+   getAndreaniToken: login + captura token
+   ======================================= */
 
 async function getAndreaniToken(email, password) {
   let browser;
@@ -18,23 +137,22 @@ async function getAndreaniToken(email, password) {
     });
 
     page = await browser.newPage();
-    await page.setViewport({ width: 1600, height: 1080 });
 
-    // Interceptar requests para capturar el Bearer
+    // Interceptar requests para capturar Bearer por header (fallback)
     await page.setRequestInterception(true);
     page.on("request", async (request) => {
       const url = request.url();
       const headers = request.headers();
 
       if (
-        url.includes("/api/v1/Sucursal/GetUbicacionesSucursales") &&
         headers.authorization &&
-        headers.authorization.startsWith("Bearer")
+        headers.authorization.startsWith("Bearer ")
       ) {
         bearerToken = headers.authorization;
-        console.log("✅ Token Bearer capturado:", bearerToken);
+        console.log("✅ Bearer por header:", truncateToken(bearerToken));
       }
 
+      // No bloquear requests de navegación
       request.continue();
     });
 
@@ -49,75 +167,34 @@ async function getAndreaniToken(email, password) {
       visible: true,
       timeout: 30000,
     });
-    await page.type("#signInName", email, { delay: 100 });
-    await page.type("#password", password, { delay: 100 });
+    await page.type("#signInName", email, { delay: 60 });
+    await page.type("#password", password, { delay: 60 });
     await page.click("#next");
 
-    console.log("🟠 Esperando redirección...");
-    try {
-      await page.waitForNavigation({
-        waitUntil: "networkidle2",
-        timeout: 10000,
-      });
-    } catch (error) {
-      console.warn(
-        "⚠️ No redireccionó después del login. Reintentando login..."
-      );
+    console.log("🟠 Esperando navegación post-login...");
+    await page
+      .waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 })
+      .catch(() => {});
 
-      // Intentamos completar el login de nuevo
-      await page.waitForSelector("#signInName", {
-        visible: true,
-        timeout: 5000,
-      });
-      await page.click("#signInName", { clickCount: 3 }); // Selecciona y borra
-      await page.type("#signInName", email, { delay: 100 });
+    // 👉 Captura del access_token en el salto a pymes.andreani.com
+    const tokenFromUrl = await waitForAccessToken(page, { timeout: 15000 });
 
-      await page.click("#password", { clickCount: 3 });
-      await page.type("#password", password, { delay: 100 });
-
-      await page.click("#next");
-
-      // Esperamos redirección otra vez
-      await page.waitForNavigation({
-        waitUntil: "networkidle2",
-        timeout: 15000,
-      });
+    if (tokenFromUrl) {
+      bearerToken = `Bearer ${tokenFromUrl}`;
+      console.log("✅ access_token de URL:", truncateToken(bearerToken));
+    } else if (page.url().includes("pymes.andreani.com")) {
+      // Intentar storage si ya limpió la URL
+      const stored = await tryReadTokenFromStorage(page);
+      if (stored) {
+        bearerToken = `Bearer ${stored}`;
+        console.log("✅ Token desde storage:", truncateToken(bearerToken));
+      } else {
+        console.warn("⚠️ No encontré token en URL ni en storage.");
+      }
     }
 
-    // ➕ Acción post login: click en "Hacer envío"
-    await page.waitForSelector("#hacer_envio", { visible: true });
-    await page.click("#hacer_envio");
-
-    // ➕ Espera a que aparezca la card "Paquetes – Hasta 50 kg"
-    await page.waitForFunction(
-      () => {
-        const cards = document.querySelectorAll("div.MuiCard-root");
-        return [...cards].some(
-          (card) =>
-            card.innerText.includes("Paquetes") &&
-            card.innerText.includes("Hasta 50 kg")
-        );
-      },
-      { timeout: 10000 }
-    );
-
-    // ➕ Click en la card correspondiente
-    await page.evaluate(() => {
-      const cards = document.querySelectorAll("div.MuiCard-root");
-      for (const el of cards) {
-        if (
-          el.innerText.includes("Paquetes") &&
-          el.innerText.includes("Hasta 50 kg")
-        ) {
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-          el.click();
-          break;
-        }
-      }
-    });
-
-    // 🔁 Espera adicional para capturar el token
-    await new Promise((resolve) => setTimeout(resolve, 5000));
+    // 🔁 Pausa mínima por si la app dispara XHRs con Authorization
+    await new Promise((r) => setTimeout(r, 2000));
 
     if (!bearerToken) {
       await page.screenshot({ path: "debug-no-token.png" });
@@ -139,6 +216,10 @@ async function getAndreaniToken(email, password) {
   }
 }
 
+/* ====================================================
+   getSucursalId: login + token + capturar ubicaciones
+   ==================================================== */
+
 async function getSucursalId(email, password, cp) {
   let browser;
   let page;
@@ -147,7 +228,8 @@ async function getSucursalId(email, password, cp) {
 
   try {
     browser = await puppeteer.launch({
-      headless: "shell",
+      headless: false, // 👈 visible
+      defaultViewport: null,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
 
@@ -159,11 +241,11 @@ async function getSucursalId(email, password, cp) {
       const headers = request.headers();
 
       if (
-        url.includes("/api/v1/Sucursal/GetUbicacionesSucursales") &&
-        headers.authorization?.startsWith("Bearer")
+        headers.authorization &&
+        headers.authorization.startsWith("Bearer ")
       ) {
         bearerToken = headers.authorization;
-        console.log("✅ Bearer Token capturado:", bearerToken);
+        console.log("✅ Bearer por header:", truncateToken(bearerToken));
       }
 
       if (
@@ -188,32 +270,62 @@ async function getSucursalId(email, password, cp) {
     });
 
     await page.waitForSelector("#signInName", { visible: true });
-    await page.type("#signInName", email);
-    await page.type("#password", password);
+    await page.type("#signInName", email, { delay: 50 });
+    await page.type("#password", password, { delay: 50 });
     await page.click("#next");
-    await page.waitForNavigation({
-      waitUntil: "networkidle2",
-      timeout: 15000,
-    });
+    await page
+      .waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 })
+      .catch(() => {});
 
-    // Hacer envío → Paquetes
-    await page.waitForSelector("#hacer_envio", { visible: true });
+    // 👉 Captura del token en salto a pymes
+    const tokenFromUrl = await waitForAccessToken(page, { timeout: 15000 });
+    if (tokenFromUrl) {
+      bearerToken = `Bearer ${tokenFromUrl}`;
+      console.log("✅ access_token de URL:", truncateToken(bearerToken));
+    } else if (page.url().includes("pymes.andreani.com")) {
+      const stored = await tryReadTokenFromStorage(page);
+      if (stored) {
+        bearerToken = `Bearer ${stored}`;
+        console.log("✅ Token desde storage:", truncateToken(bearerToken));
+      } else {
+        console.warn("⚠️ No encontré token en URL ni en storage.");
+      }
+    }
+
+    // Si tu flujo de “hacer envío → paquetes” ahora vive en pymes.andreani.com,
+    // ajustá los selectores. Abajo uso los que ya venías usando:
+
+    // Hacer envío
+    await page.waitForSelector("#hacer_envio", {
+      visible: true,
+      timeout: 20000,
+    });
     await page.click("#hacer_envio");
 
-    await page.waitForFunction(() => {
-      return [...document.querySelectorAll("div.MuiCard-root")].some(
-        (card) =>
-          card.innerText.includes("Paquetes") &&
-          card.innerText.includes("Hasta 50 kg")
-      );
-    });
+    // Card "Paquetes – Hasta 50 kg"
+    await page.waitForFunction(
+      () => {
+        const cards = document.querySelectorAll("div.MuiCard-root");
+        return [...cards].some(
+          (card) =>
+            card.innerText.includes("Paquetes") &&
+            card.innerText.includes("Hasta 50 kg")
+        );
+      },
+      { timeout: 15000 }
+    );
     await page.evaluate(() => {
-      const card = [...document.querySelectorAll("div.MuiCard-root")].find(
-        (card) =>
-          card.innerText.includes("Paquetes") &&
-          card.innerText.includes("Hasta 50 kg")
-      );
-      if (card) card.click();
+      const cards = document.querySelectorAll("div.MuiCard-root");
+      for (const el of cards) {
+        if (
+          el.innerText.includes("Paquetes") &&
+          el.innerText.includes("Hasta 50 kg")
+        ) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.click();
+          break;
+        }
+      }
     });
 
     // ORIGEN
@@ -249,21 +361,20 @@ async function getSucursalId(email, password, cp) {
     await page.click("#PackageDescription-siguiente--paquetes");
 
     // CÓDIGO POSTAL DESTINO
-    console.log("📮 Ingresando CP:", cp);
+    console.log("📮 Ingresando CP...");
     await page.waitForSelector('input[placeholder="Ej: 1824, Lanús Oeste"]', {
       visible: true,
     });
     const input = await page.$('input[placeholder="Ej: 1824, Lanús Oeste"]');
     await input.click({ clickCount: 3 });
     await input.press("Backspace");
-    await input.type(cp, { delay: 80 });
+    await input.type(String(cp), { delay: 80 });
 
-    // Esperar opciones y seleccionar la primera
+    // Seleccionar primera opción
     await page.waitForFunction(() => {
       const items = document.querySelectorAll("li[role='option']");
       return items.length > 0;
     });
-
     await page.evaluate(() => {
       const first = document.querySelector("li[role='option']");
       if (first) first.click();
@@ -282,18 +393,19 @@ async function getSucursalId(email, password, cp) {
       if (sucursalDiv) sucursalDiv.click();
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     await page.waitForSelector("#DeliveryMethod-siguiente--paquetes", {
       visible: true,
     });
     await page.click("#DeliveryMethod-siguiente--paquetes");
 
-    // Esperar la request de sucursales destino
+    // Esperar a que dispare la request de sucursales destino
     await new Promise((resolve) => setTimeout(resolve, 3000));
 
     if (!ubicacionesPath) {
-      throw new Error("❌ No se capturó la URL de destino");
+      await page.screenshot({ path: "error-no-ubicaciones.png" });
+      throw new Error("❌ No se capturó la URL de destino (ubicacionesPath)");
     }
 
     return {
@@ -311,6 +423,10 @@ async function getSucursalId(email, password, cp) {
   }
 }
 
+/* ======================
+   Endpoints HTTP
+   ====================== */
+
 app.post("/get-andreani-token", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -322,7 +438,7 @@ app.post("/get-andreani-token", async (req, res) => {
       });
     }
 
-    console.log("🔵 Iniciando proceso...");
+    console.log("🔵 Iniciando proceso /get-andreani-token...");
     const token = await getAndreaniToken(email, password);
 
     res.json({
@@ -347,11 +463,11 @@ app.post("/get-sucursal-id", async (req, res) => {
     if (!email || !password || !cp) {
       return res.status(400).json({
         success: false,
-        error: "Email y contraseña son requeridos",
+        error: "Email, contraseña y CP son requeridos",
       });
     }
 
-    console.log("🔵 Iniciando proceso...");
+    console.log("🔵 Iniciando proceso /get-sucursal-id...");
     const id = await getSucursalId(email, password, cp);
 
     res.json({
