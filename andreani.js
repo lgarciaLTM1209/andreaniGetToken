@@ -152,7 +152,8 @@ async function getAndreaniToken(email, password) {
         "--disable-setuid-sandbox",
         "--window-size=1920,1080"
       ],
-      ...(isProduction && { executablePath: process.env.CHROMIUM_PATH }), // CHROMIUM PATH REQUIRED WHEN USING DOCKER (PRODUCTION)
+      // Usar executablePath si está definido (Docker) o si estamos en producción
+      ...(process.env.CHROMIUM_PATH && { executablePath: process.env.CHROMIUM_PATH }),
     });
 
     page = await browser.newPage();
@@ -251,7 +252,8 @@ async function getSucursalId(email, password, cp) {
         "--disable-setuid-sandbox",
         "--window-size=1920,1080"
       ],
-      ...(isProduction && { executablePath: process.env.CHROMIUM_PATH }), // CHROMIUM PATH REQUIRED WHEN USING DOCKER (PRODUCTION)
+      // Usar executablePath si está definido (Docker) o si estamos en producción
+      ...(process.env.CHROMIUM_PATH && { executablePath: process.env.CHROMIUM_PATH }),
     });
 
     page = await browser.newPage();
@@ -586,7 +588,8 @@ async function hacerEnvio(email, password) {
         "--disable-web-security",
         "--disable-features=VizDisplayCompositor"
       ],
-      ...(isProduction && { executablePath: process.env.CHROMIUM_PATH }), // CHROMIUM PATH REQUIRED WHEN USING DOCKER (PRODUCTION)
+      // Usar executablePath si está definido (Docker) o si estamos en producción
+      ...(process.env.CHROMIUM_PATH && { executablePath: process.env.CHROMIUM_PATH }),
       ignoreDefaultArgs: ["--disable-extensions"],
     });
     
