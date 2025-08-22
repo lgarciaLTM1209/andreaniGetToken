@@ -4,8 +4,6 @@ services:
   puppeteer-in-docker:
     build: .
     container_name: andreani-token-service
-    ports:
-      - "8080:8080"
     environment:
       NODE_ENV: "production"
       CHROMIUM_PATH: "/usr/bin/chromium"
