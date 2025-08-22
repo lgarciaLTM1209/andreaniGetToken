@@ -1,5 +1,13 @@
 // index.js
-const puppeteer = require("puppeteer");
+// Detectar si estamos en contenedor para usar puppeteer-core
+const isContainer =
+  process.env.NODE_ENV === "production" ||
+  process.env.DOCKER_ENV === "true" ||
+  process.env.COOLIFY_APP_ID;
+
+const puppeteer = isContainer
+  ? require("puppeteer-core")
+  : require("puppeteer");
 require("dotenv").config();
 const express = require("express");
 
@@ -140,11 +148,51 @@ async function getAndreaniToken(email, password) {
   let page;
 
   try {
-    browser = await puppeteer.launch({
-      headless: false, // 👈 Cambiado para mostrar navegador
-      defaultViewport: null,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
+    // Detectar si estamos en un entorno de contenedor
+    const isContainer =
+      process.env.NODE_ENV === "production" ||
+      process.env.DOCKER_ENV === "true" ||
+      process.env.COOLIFY_APP_ID;
+
+    const browserArgs = [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-web-security",
+      "--disable-features=VizDisplayCompositor",
+      "--disable-extensions",
+      "--disable-plugins",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--single-process",
+    ];
+
+    if (isContainer) {
+      browserArgs.push(
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding",
+        "--memory-pressure-off",
+        "--disable-images"
+      );
+    }
+
+    const launchConfig = {
+      headless: isContainer ? "new" : false, // headless en contenedores, visible localmente
+      defaultViewport: { width: 1280, height: 720 },
+      args: browserArgs,
+      timeout: 60000,
+      protocolTimeout: 60000,
+    };
+
+    // En contenedores, usar el ejecutable de Chrome instalado
+    if (isContainer) {
+      launchConfig.executablePath =
+        process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium-browser";
+    }
+
+    browser = await puppeteer.launch(launchConfig);
 
     page = await browser.newPage();
 
@@ -157,7 +205,7 @@ async function getAndreaniToken(email, password) {
     console.log("🔵 Completando login...");
     await page.waitForSelector("#signInName", {
       visible: true,
-      timeout: 30000,
+      timeout: 60000, // Timeout extendido para contenedores
     });
     await page.type("#signInName", finalEmail, { delay: 60 });
     await page.type("#password", finalPassword, { delay: 60 });
@@ -176,7 +224,7 @@ async function getAndreaniToken(email, password) {
     console.log("🎯 Buscando botón 'Hacer envío'...");
     await page.waitForSelector("#hacer_envio", {
       visible: true,
-      timeout: 20000,
+      timeout: 60000, // Timeout extendido para contenedores
     });
     console.log("✅ Encontré el botón 'Hacer envío', haciendo click...");
     await page.click("#hacer_envio");
@@ -225,11 +273,51 @@ async function getSucursalId(email, password, cp) {
   let ubicacionesPath = null;
 
   try {
-    browser = await puppeteer.launch({
-      headless: false, // 👈 visible
-      defaultViewport: null,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
+    // Detectar si estamos en un entorno de contenedor
+    const isContainer =
+      process.env.NODE_ENV === "production" ||
+      process.env.DOCKER_ENV === "true" ||
+      process.env.COOLIFY_APP_ID;
+
+    const browserArgs = [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-web-security",
+      "--disable-features=VizDisplayCompositor",
+      "--disable-extensions",
+      "--disable-plugins",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--single-process",
+    ];
+
+    if (isContainer) {
+      browserArgs.push(
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding",
+        "--memory-pressure-off",
+        "--disable-images"
+      );
+    }
+
+    const launchConfig = {
+      headless: isContainer ? "new" : false, // headless en contenedores, visible localmente
+      defaultViewport: { width: 1280, height: 720 },
+      args: browserArgs,
+      timeout: 60000,
+      protocolTimeout: 60000,
+    };
+
+    // En contenedores, usar el ejecutable de Chrome instalado
+    if (isContainer) {
+      launchConfig.executablePath =
+        process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium-browser";
+    }
+
+    browser = await puppeteer.launch(launchConfig);
 
     page = await browser.newPage();
 
@@ -282,7 +370,7 @@ async function getSucursalId(email, password, cp) {
     console.log("🎯 Buscando botón 'Hacer envío'...");
     await page.waitForSelector("#hacer_envio", {
       visible: true,
-      timeout: 20000,
+      timeout: 60000, // Timeout extendido para contenedores
     });
     console.log("✅ Encontré el botón 'Hacer envío', haciendo click...");
     await page.click("#hacer_envio");
@@ -479,15 +567,51 @@ async function hacerEnvio(email, password) {
   let authToken = null;
 
   try {
-    browser = await puppeteer.launch({
-      headless: true,
-      defaultViewport: null,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-      ],
-    });
+    // Detectar si estamos en un entorno de contenedor
+    const isContainer =
+      process.env.NODE_ENV === "production" ||
+      process.env.DOCKER_ENV === "true" ||
+      process.env.COOLIFY_APP_ID;
+
+    const browserArgs = [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-web-security",
+      "--disable-features=VizDisplayCompositor",
+      "--disable-extensions",
+      "--disable-plugins",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--single-process",
+    ];
+
+    if (isContainer) {
+      browserArgs.push(
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding",
+        "--memory-pressure-off",
+        "--disable-images"
+      );
+    }
+
+    const launchConfig = {
+      headless: "new", // siempre headless para esta función
+      defaultViewport: { width: 1280, height: 720 },
+      args: browserArgs,
+      timeout: 60000,
+      protocolTimeout: 60000,
+    };
+
+    // En contenedores, usar el ejecutable de Chrome instalado
+    if (isContainer) {
+      launchConfig.executablePath =
+        process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium-browser";
+    }
+
+    browser = await puppeteer.launch(launchConfig);
 
     page = await browser.newPage();
 
@@ -557,7 +681,7 @@ async function hacerEnvio(email, password) {
     console.log("🔵 Completando login...");
     await page.waitForSelector("#signInName", {
       visible: true,
-      timeout: 30000,
+      timeout: 60000, // Timeout extendido para contenedores
     });
     await page.type("#signInName", finalEmail, { delay: 60 });
     await page.type("#password", finalPassword, { delay: 60 });
@@ -565,7 +689,7 @@ async function hacerEnvio(email, password) {
 
     console.log("🟠 Esperando navegación post-login...");
     await page
-      .waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 })
+      .waitForNavigation({ waitUntil: "networkidle2", timeout: 60000 })
       .catch(() => {});
 
     console.log("📍 URL actual después del login:", page.url());
@@ -585,28 +709,104 @@ async function hacerEnvio(email, password) {
         );
       });
 
-    // Hacer click en el botón "Hacer envío"
+    // Hacer click en el botón "Hacer envío" con estrategias múltiples
     console.log("🎯 Buscando botón 'Hacer envío'...");
 
-    // Esperar a que el botón sea visible y esté habilitado
-    await page.waitForSelector("#hacer_envio", {
-      visible: true,
-      timeout: 30000,
-    });
+    // Estrategia 1: Esperar a que el botón sea visible y esté habilitado con timeout extendido
+    try {
+      await page.waitForSelector("#hacer_envio", {
+        visible: true,
+        timeout: 90000, // Timeout extendido significativamente para contenedores
+      });
 
-    // Verificar que el botón esté realmente disponible para click
-    await page.waitForFunction(
-      () => {
-        const btn = document.querySelector("#hacer_envio");
-        return btn && !btn.disabled && btn.offsetParent !== null;
-      },
-      { timeout: 10000 }
-    );
+      // Verificar que el botón esté realmente disponible para click
+      await page.waitForFunction(
+        () => {
+          const btn = document.querySelector("#hacer_envio");
+          return btn && !btn.disabled && btn.offsetParent !== null;
+        },
+        { timeout: 10000 }
+      );
 
-    console.log("⏳ Pausa adicional antes del click...");
-    await new Promise((r) => setTimeout(r, 2000));
-    console.log("✅ Encontré el botón 'Hacer envío', haciendo click...");
-    await page.click("#hacer_envio");
+      console.log("⏳ Pausa adicional antes del click...");
+      await new Promise((r) => setTimeout(r, 2000));
+      console.log("✅ Encontré el botón 'Hacer envío', haciendo click...");
+      await page.click("#hacer_envio");
+    } catch (error) {
+      console.log("❌ Error esperando el botón #hacer_envio:", error.message);
+
+      // Estrategia 2: Debugging - tomar screenshot y analizar DOM
+      console.log("🔍 Analizando la página actual para debugging...");
+      await page.screenshot({ path: "debug-screenshot.png", fullPage: true });
+
+      const currentUrl = page.url();
+      console.log("📍 URL actual:", currentUrl);
+
+      // Verificar si hay elementos similares
+      const similarButtons = await page.evaluate(() => {
+        const buttons = Array.from(
+          document.querySelectorAll('button, [role="button"], a, div[onclick]')
+        );
+        return buttons
+          .filter(
+            (btn) =>
+              btn.textContent && btn.textContent.toLowerCase().includes("envío")
+          )
+          .map((btn) => ({
+            tagName: btn.tagName,
+            id: btn.id,
+            className: btn.className,
+            textContent: btn.textContent.trim(),
+            visible: btn.offsetParent !== null,
+          }));
+      });
+
+      console.log(
+        "🔍 Botones relacionados con 'envío' encontrados:",
+        JSON.stringify(similarButtons, null, 2)
+      );
+
+      // Intentar encontrar el botón por texto si el ID no funciona
+      const foundByText = await page.evaluate(() => {
+        const elements = Array.from(document.querySelectorAll("*"));
+        const target = elements.find(
+          (el) =>
+            el.textContent &&
+            el.textContent.toLowerCase().includes("hacer envío") &&
+            el.offsetParent !== null
+        );
+        return target
+          ? {
+              tagName: target.tagName,
+              id: target.id,
+              className: target.className,
+              textContent: target.textContent.trim(),
+            }
+          : null;
+      });
+
+      if (foundByText) {
+        console.log("✅ Encontré botón por texto:", foundByText);
+        try {
+          await page.evaluate(() => {
+            const elements = Array.from(document.querySelectorAll("*"));
+            const target = elements.find(
+              (el) =>
+                el.textContent &&
+                el.textContent.toLowerCase().includes("hacer envío") &&
+                el.offsetParent !== null
+            );
+            if (target) target.click();
+          });
+          console.log("✅ Click realizado usando estrategia de texto");
+        } catch (clickError) {
+          console.log("❌ Error en click por texto:", clickError.message);
+          throw error; // Re-lanzar el error original
+        }
+      } else {
+        throw error; // Re-lanzar el error original
+      }
+    }
 
     console.log("⏳ Esperando que la página se actualice después del click...");
     // Esperar a que la página navegue o se actualice completamente
@@ -1056,6 +1256,15 @@ app.post("/get-sucursal-id", async (req, res) => {
       details: "Error al obtener el id de sucursal",
     });
   }
+});
+
+// Health check endpoint para Docker
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "OK",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
 });
 
 app.listen(port, () => {
