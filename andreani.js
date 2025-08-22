@@ -148,22 +148,22 @@ async function createBrowser() {
     "🛡️ Configurando browser con técnicas anti-detección equilibradas..."
   );
 
-  // Generar user agent aleatorio pero realista
-  const userAgent = new UserAgent();
-  const randomUA = userAgent.toString();
-  console.log(`🎭 User Agent aleatorio: ${randomUA}`);
+  // Usar un user agent fijo para consistencia entre entornos
+  const fixedUA =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+  console.log(`🎭 User Agent fijo: ${fixedUA}`);
 
-  // Viewport aleatorio para parecer más humano
-  const randomViewport = {
-    width: 1920 + Math.floor(Math.random() * 100),
-    height: 1080 + Math.floor(Math.random() * 100),
+  // Viewport fijo para consistencia entre entornos
+  const fixedViewport = {
+    width: 1920,
+    height: 1080,
     deviceScaleFactor: 1,
     hasTouch: false,
     isLandscape: false,
     isMobile: false,
   };
   console.log(
-    `📱 Viewport aleatorio: ${randomViewport.width}x${randomViewport.height}`
+    `📱 Viewport fijo: ${fixedViewport.width}x${fixedViewport.height}`
   );
 
   const browserOptions = {
@@ -206,7 +206,7 @@ async function createBrowser() {
       process.env.DEBUG_MODE === "true"
         ? 100
         : 50 + Math.floor(Math.random() * 50), // Delay aleatorio para parecer humano
-    defaultViewport: randomViewport,
+    defaultViewport: fixedViewport,
     ignoreDefaultArgs: ["--disable-extensions", "--enable-automation"], // Permitir extensiones
     ignoreHTTPSErrors: true,
     timeout: 60000,
@@ -257,17 +257,27 @@ async function createBrowser() {
 
 // Función para configurar página con anti-detección
 async function setupPage(page) {
-  // Generar user agent aleatorio
-  const userAgent = new UserAgent();
-  const randomUA = userAgent.toString();
+  // Usar user agent fijo para consistencia
+  const fixedUA =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
   // Configuraciones anti-detección de bots - TÉCNICAS EQUILIBRADAS
   console.log(
     "🤖 Configurando anti-detección de bots con técnicas equilibradas..."
   );
 
-  // Establecer user agent aleatorio
-  await page.setUserAgent(randomUA);
+  // Establecer user agent fijo
+  await page.setUserAgent(fixedUA);
+
+  // Configurar headers adicionales para consistencia
+  await page.setExtraHTTPHeaders({
+    "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    Accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+    Connection: "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+  });
 
   // TÉCNICA 1: Ocultar que es un navegador automatizado
   await page.evaluateOnNewDocument(() => {
@@ -385,8 +395,54 @@ async function getAndreaniToken(email, password) {
       .catch(() => {});
 
     console.log("📍 URL actual después del login:", page.url());
+
+    // Verificar si estamos en la URL correcta o en Azure AD B2C
+    const currentUrl = page.url();
+    if (currentUrl.includes("andreanib2c.b2clogin.com")) {
+      console.log("⚠️  DETECTADO: Redirigido a Azure AD B2C");
+      console.log("🔄 Esto puede indicar que Azure AD detectó automatización");
+      console.log(
+        "🌐 Esperando a que se complete el flujo de autenticación..."
+      );
+
+      // Esperar más tiempo para que Azure AD complete el flujo
+      try {
+        await page.waitForNavigation({
+          waitUntil: "networkidle2",
+          timeout: 30000,
+        });
+        console.log("📍 Nueva URL después de Azure AD:", page.url());
+      } catch (err) {
+        console.log(
+          "⚠️  Timeout esperando navegación de Azure AD, continuando..."
+        );
+      }
+    }
+
     console.log("⏳ Pausa de 3 segundos para observar la página...");
     await new Promise((r) => setTimeout(r, 3000));
+
+    // Verificar si necesitamos manejar Azure AD B2C
+    const finalUrl = page.url();
+    if (finalUrl.includes("andreanib2c.b2clogin.com")) {
+      console.log(
+        "🚨 PROBLEMA: Aún estamos en Azure AD B2C después de esperar"
+      );
+      console.log(
+        "💡 Esto sugiere que Azure AD está bloqueando el acceso automatizado"
+      );
+      console.log("🔄 Intentando navegar manualmente a la página principal...");
+
+      try {
+        await page.goto("https://onboarding.andreani.com/", {
+          waitUntil: "networkidle2",
+          timeout: 30000,
+        });
+        console.log("📍 URL después de navegación manual:", page.url());
+      } catch (err) {
+        console.log("❌ Error en navegación manual:", err.message);
+      }
+    }
 
     // Hacer click en el botón "Hacer envío"
     console.log("🎯 Buscando botón 'Hacer envío'...");
