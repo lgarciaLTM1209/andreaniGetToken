@@ -827,7 +827,7 @@ async function hacerEnvio(email, password) {
     console.log("⏳ Esperando que carguen las opciones de sucursales...");
     await page.waitForSelector("div.Branches_paper__MWRtc:nth-child(1)", {
       visible: true,
-      timeout: 20000,
+      timeout: 30000,
     });
 
     console.log(
