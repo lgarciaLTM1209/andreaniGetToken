@@ -1,54 +1,21 @@
 // index.js
-const fs = require("fs");
-
-// Detectar si estamos en contenedor para usar puppeteer-core
-const isContainer =
-  process.env.NODE_ENV === "production" ||
-  process.env.DOCKER_ENV === "true" ||
-  process.env.COOLIFY_APP_ID;
-
-// Función helper para encontrar el ejecutable de Chrome/Chromium
-function findChromiumExecutable() {
-  const possiblePaths = [
-    process.env.PUPPETEER_EXECUTABLE_PATH,
-    process.env.CHROME_BIN,
-    process.env.CHROME_PATH,
-    "/usr/bin/chromium-browser",
-    "/usr/bin/chromium",
-    "/usr/bin/google-chrome-stable",
-    "/usr/bin/google-chrome",
-    "/snap/bin/chromium",
-    "chromium-browser",
-    "chromium",
-  ];
-
-  // En contenedores, verificar si el archivo existe
-  for (const path of possiblePaths) {
-    if (path) {
-      try {
-        if (fs.existsSync(path)) {
-          console.log(`✅ Encontré Chrome en: ${path}`);
-          return path;
-        }
-      } catch (error) {
-        // Ignorar errores de acceso a archivos
-      }
-    }
-  }
-
-  console.log("⚠️ No se encontró Chrome en ninguna ruta conocida");
-  return null;
-}
-
-const puppeteer = isContainer
-  ? require("puppeteer-core")
-  : require("puppeteer");
+"use strict";
 require("dotenv").config();
 const express = require("express");
+const fs = require("fs").promises;
+
+// Usar puppeteer-extra con plugins GRATUITOS (configuración que funciona en Coolify)
+const puppeteer = require("puppeteer-extra");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+const UserAgent = require("user-agents");
 
 const app = express();
 const port = 3000;
 app.use(express.json());
+
+// Configurar plugins de puppeteer-extra (SOLO GRATUITOS)
+puppeteer.use(StealthPlugin());
+console.log("🛡️ Plugin Stealth configurado (técnicas gratuitas de evasión)");
 
 /* =========================
    Helpers de captura token
@@ -164,6 +131,216 @@ async function tryReadTokenFromStorage(page) {
   return prefer(data.localStorage) || prefer(data.sessionStorage) || null;
 }
 
+// Función para crear browser con configuración que funciona en Coolify
+async function createBrowser() {
+  console.log("🔍 === VERIFICACIÓN DEL ENTORNO ===");
+  console.log(`🐧 Sistema operativo: ${process.platform}`);
+  console.log(`📁 Directorio actual: ${process.cwd()}`);
+  console.log(`🔧 Variables de entorno relevantes:`);
+  console.log(`   - DISPLAY: ${process.env.DISPLAY || "No configurado"}`);
+  console.log(`   - DEBUG_MODE: ${process.env.DEBUG_MODE || "No configurado"}`);
+  console.log(`   - NODE_ENV: ${process.env.NODE_ENV || "No configurado"}`);
+  console.log(`   - DOCKER_ENV: ${process.env.DOCKER_ENV || "No configurado"}`);
+  console.log("🔍 === FIN VERIFICACIÓN DEL ENTORNO ===");
+
+  // Configuración del browser - equilibrada entre anti-detección y funcionalidad
+  console.log(
+    "🛡️ Configurando browser con técnicas anti-detección equilibradas..."
+  );
+
+  // Generar user agent aleatorio pero realista
+  const userAgent = new UserAgent();
+  const randomUA = userAgent.toString();
+  console.log(`🎭 User Agent aleatorio: ${randomUA}`);
+
+  // Viewport aleatorio para parecer más humano
+  const randomViewport = {
+    width: 1920 + Math.floor(Math.random() * 100),
+    height: 1080 + Math.floor(Math.random() * 100),
+    deviceScaleFactor: 1,
+    hasTouch: false,
+    isLandscape: false,
+    isMobile: false,
+  };
+  console.log(
+    `📱 Viewport aleatorio: ${randomViewport.width}x${randomViewport.height}`
+  );
+
+  const browserOptions = {
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-blink-features=AutomationControlled", // Crítico para evitar detección
+      "--disable-extensions",
+      "--disable-plugins",
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
+      "--disable-hang-monitor",
+      "--disable-prompt-on-repost",
+      "--disable-sync",
+      "--disable-translate",
+      "--disable-default-apps",
+      "--disable-component-extensions-with-background-pages",
+      "--disable-background-networking",
+      "--disable-component-update",
+      "--disable-client-side-phishing-detection",
+      "--disable-datasaver-prompt",
+      "--disable-domain-reliability",
+      "--disable-features=TranslateUI",
+      "--mute-audio",
+      "--no-default-browser-check",
+      "--no-pings",
+      "--password-store=basic",
+      "--use-mock-keychain",
+      // Argumentos adicionales para bypass de detección
+      "--disable-automation",
+      "--exclude-switches=enable-automation",
+      "--disable-extensions-http-throttling",
+      "--metrics-recording-only",
+      "--no-report-upload",
+      "--safebrowsing-disable-auto-update",
+    ],
+    slowMo:
+      process.env.DEBUG_MODE === "true"
+        ? 100
+        : 50 + Math.floor(Math.random() * 50), // Delay aleatorio para parecer humano
+    defaultViewport: randomViewport,
+    ignoreDefaultArgs: ["--disable-extensions", "--enable-automation"], // Permitir extensiones
+    ignoreHTTPSErrors: true,
+    timeout: 60000,
+    devtools: false,
+  };
+
+  console.log(
+    "🚀 Intentando lanzar browser con configuración anti-detección equilibrada..."
+  );
+
+  let browser;
+  try {
+    browser = await puppeteer.launch(browserOptions);
+    console.log("🌐 Browser lanzado exitosamente");
+    return browser;
+  } catch (launchError) {
+    console.error("💥 Error al lanzar el browser:", launchError.message);
+    console.error(
+      "📍 Stack trace del error de lanzamiento:",
+      launchError.stack
+    );
+
+    // Intentar con configuración más básica para Docker
+    console.log("🔄 Intentando con configuración básica...");
+    const basicOptions = {
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+      ],
+      slowMo: process.env.DEBUG_MODE === "true" ? 100 : 0,
+      ignoreHTTPSErrors: true,
+    };
+
+    try {
+      browser = await puppeteer.launch(basicOptions);
+      console.log("🌐 Browser lanzado exitosamente con configuración básica");
+      return browser;
+    } catch (basicError) {
+      console.error(
+        "💀 Error crítico: No se pudo lanzar el browser ni con configuración básica"
+      );
+      console.error("📍 Error básico:", basicError.message);
+      throw new Error(`No se pudo lanzar el browser: ${basicError.message}`);
+    }
+  }
+}
+
+// Función para configurar página con anti-detección
+async function setupPage(page) {
+  // Generar user agent aleatorio
+  const userAgent = new UserAgent();
+  const randomUA = userAgent.toString();
+
+  // Configuraciones anti-detección de bots - TÉCNICAS EQUILIBRADAS
+  console.log(
+    "🤖 Configurando anti-detección de bots con técnicas equilibradas..."
+  );
+
+  // Establecer user agent aleatorio
+  await page.setUserAgent(randomUA);
+
+  // TÉCNICA 1: Ocultar que es un navegador automatizado
+  await page.evaluateOnNewDocument(() => {
+    // Pass webdriver check - Eliminar la propiedad webdriver
+    Object.defineProperty(navigator, "webdriver", {
+      get: () => undefined,
+    });
+
+    // Eliminar propiedades de automatización
+    delete window.webdriver;
+    delete window.__webdriver_evaluate;
+    delete window.__selenium_evaluate;
+    delete window.__webdriver_script_function;
+    delete window.__webdriver_script_func;
+    delete window.__webdriver_script_fn;
+    delete window.__fxdriver_evaluate;
+    delete window.__driver_unwrapped;
+    delete window.__webdriver_unwrapped;
+    delete window.__driver_evaluate;
+    delete window.__selenium_unwrapped;
+    delete window.__fxdriver_unwrapped;
+  });
+
+  // TÉCNICA 2: Pass chrome check - Agregar propiedades de Chrome
+  await page.evaluateOnNewDocument(() => {
+    window.chrome = {
+      runtime: {},
+      loadTimes: function () {},
+      csi: function () {},
+      app: {},
+    };
+  });
+
+  // TÉCNICA 3: Pass notifications check - Sobrescribir permisos
+  await page.evaluateOnNewDocument(() => {
+    const originalQuery = window.navigator.permissions.query;
+    return (window.navigator.permissions.query = (parameters) =>
+      parameters.name === "notifications"
+        ? Promise.resolve({ state: Notification.permission })
+        : originalQuery(parameters));
+  });
+
+  // TÉCNICA 4: Pass plugins check - Sobrescribir la propiedad plugins
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, "plugins", {
+      get: () => [1, 2, 3, 4, 5],
+    });
+  });
+
+  // TÉCNICA 5: Pass languages check - Sobrescribir la propiedad languages
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, "languages", {
+      get: () => ["es-ES", "es", "en-US", "en"],
+    });
+  });
+
+  // TÉCNICA 6: Configurar headers HTTP realistas
+  await page.setExtraHTTPHeaders({
+    "Accept-Language": "es-ES,es;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
+    Accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+    "Upgrade-Insecure-Requests": "1",
+    "Cache-Control": "max-age=0",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-User": "?1",
+    "Sec-Fetch-Dest": "document",
+  });
+
+  console.log("✅ Configuración anti-detección equilibrada completada");
+}
+
 /* =======================================
    getAndreaniToken: login + captura token
    ======================================= */
@@ -183,59 +360,9 @@ async function getAndreaniToken(email, password) {
   let page;
 
   try {
-    // Detectar si estamos en un entorno de contenedor
-    const isContainer =
-      process.env.NODE_ENV === "production" ||
-      process.env.DOCKER_ENV === "true" ||
-      process.env.COOLIFY_APP_ID;
-
-    const browserArgs = [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--disable-web-security",
-      "--disable-features=VizDisplayCompositor",
-      "--disable-extensions",
-      "--disable-plugins",
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--single-process",
-    ];
-
-    if (isContainer) {
-      browserArgs.push(
-        "--disable-background-timer-throttling",
-        "--disable-backgrounding-occluded-windows",
-        "--disable-renderer-backgrounding",
-        "--memory-pressure-off",
-        "--disable-images"
-      );
-    }
-
-    const launchConfig = {
-      headless: isContainer ? "new" : false, // headless en contenedores, visible localmente
-      defaultViewport: { width: 1280, height: 720 },
-      args: browserArgs,
-      timeout: 60000,
-      protocolTimeout: 60000,
-    };
-
-    // En contenedores, usar el ejecutable de Chrome instalado
-    if (isContainer) {
-      const chromePath = findChromiumExecutable();
-      if (chromePath) {
-        launchConfig.executablePath = chromePath;
-      } else {
-        console.log(
-          "⚠️ No se encontró Chrome, intentando sin executablePath específico..."
-        );
-      }
-    }
-
-    browser = await puppeteer.launch(launchConfig);
-
+    browser = await createBrowser();
     page = await browser.newPage();
+    await setupPage(page);
 
     console.log("🔵 Navegando al login...");
     await page.goto("https://onboarding.andreani.com/", {
@@ -246,7 +373,7 @@ async function getAndreaniToken(email, password) {
     console.log("🔵 Completando login...");
     await page.waitForSelector("#signInName", {
       visible: true,
-      timeout: 60000, // Timeout extendido para contenedores
+      timeout: 60000,
     });
     await page.type("#signInName", finalEmail, { delay: 60 });
     await page.type("#password", finalPassword, { delay: 60 });
@@ -265,7 +392,7 @@ async function getAndreaniToken(email, password) {
     console.log("🎯 Buscando botón 'Hacer envío'...");
     await page.waitForSelector("#hacer_envio", {
       visible: true,
-      timeout: 60000, // Timeout extendido para contenedores
+      timeout: 90000, // Timeout extendido
     });
     console.log("✅ Encontré el botón 'Hacer envío', haciendo click...");
     await page.click("#hacer_envio");
@@ -314,59 +441,9 @@ async function getSucursalId(email, password, cp) {
   let ubicacionesPath = null;
 
   try {
-    // Detectar si estamos en un entorno de contenedor
-    const isContainer =
-      process.env.NODE_ENV === "production" ||
-      process.env.DOCKER_ENV === "true" ||
-      process.env.COOLIFY_APP_ID;
-
-    const browserArgs = [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--disable-web-security",
-      "--disable-features=VizDisplayCompositor",
-      "--disable-extensions",
-      "--disable-plugins",
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--single-process",
-    ];
-
-    if (isContainer) {
-      browserArgs.push(
-        "--disable-background-timer-throttling",
-        "--disable-backgrounding-occluded-windows",
-        "--disable-renderer-backgrounding",
-        "--memory-pressure-off",
-        "--disable-images"
-      );
-    }
-
-    const launchConfig = {
-      headless: isContainer ? "new" : false, // headless en contenedores, visible localmente
-      defaultViewport: { width: 1280, height: 720 },
-      args: browserArgs,
-      timeout: 60000,
-      protocolTimeout: 60000,
-    };
-
-    // En contenedores, usar el ejecutable de Chrome instalado
-    if (isContainer) {
-      const chromePath = findChromiumExecutable();
-      if (chromePath) {
-        launchConfig.executablePath = chromePath;
-      } else {
-        console.log(
-          "⚠️ No se encontró Chrome, intentando sin executablePath específico..."
-        );
-      }
-    }
-
-    browser = await puppeteer.launch(launchConfig);
-
+    browser = await createBrowser();
     page = await browser.newPage();
+    await setupPage(page);
 
     await page.setRequestInterception(true);
     page.on("request", (request) => {
@@ -417,7 +494,7 @@ async function getSucursalId(email, password, cp) {
     console.log("🎯 Buscando botón 'Hacer envío'...");
     await page.waitForSelector("#hacer_envio", {
       visible: true,
-      timeout: 60000, // Timeout extendido para contenedores
+      timeout: 90000, // Timeout extendido
     });
     console.log("✅ Encontré el botón 'Hacer envío', haciendo click...");
     await page.click("#hacer_envio");
@@ -614,59 +691,9 @@ async function hacerEnvio(email, password) {
   let authToken = null;
 
   try {
-    // Detectar si estamos en un entorno de contenedor
-    const isContainer =
-      process.env.NODE_ENV === "production" ||
-      process.env.DOCKER_ENV === "true" ||
-      process.env.COOLIFY_APP_ID;
-
-    const browserArgs = [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--disable-web-security",
-      "--disable-features=VizDisplayCompositor",
-      "--disable-extensions",
-      "--disable-plugins",
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--single-process",
-    ];
-
-    if (isContainer) {
-      browserArgs.push(
-        "--disable-background-timer-throttling",
-        "--disable-backgrounding-occluded-windows",
-        "--disable-renderer-backgrounding",
-        "--memory-pressure-off",
-        "--disable-images"
-      );
-    }
-
-    const launchConfig = {
-      headless: "new", // siempre headless para esta función
-      defaultViewport: { width: 1280, height: 720 },
-      args: browserArgs,
-      timeout: 60000,
-      protocolTimeout: 60000,
-    };
-
-    // En contenedores, usar el ejecutable de Chrome instalado
-    if (isContainer) {
-      const chromePath = findChromiumExecutable();
-      if (chromePath) {
-        launchConfig.executablePath = chromePath;
-      } else {
-        console.log(
-          "⚠️ No se encontró Chrome, intentando sin executablePath específico..."
-        );
-      }
-    }
-
-    browser = await puppeteer.launch(launchConfig);
-
+    browser = await createBrowser();
     page = await browser.newPage();
+    await setupPage(page);
 
     // Interceptar requests para capturar el token de autorización
     await page.setRequestInterception(true);
@@ -734,7 +761,7 @@ async function hacerEnvio(email, password) {
     console.log("🔵 Completando login...");
     await page.waitForSelector("#signInName", {
       visible: true,
-      timeout: 60000, // Timeout extendido para contenedores
+      timeout: 60000,
     });
     await page.type("#signInName", finalEmail, { delay: 60 });
     await page.type("#password", finalPassword, { delay: 60 });
@@ -769,7 +796,7 @@ async function hacerEnvio(email, password) {
     try {
       await page.waitForSelector("#hacer_envio", {
         visible: true,
-        timeout: 90000, // Timeout extendido significativamente para contenedores
+        timeout: 90000, // Timeout extendido significativamente
       });
 
       // Verificar que el botón esté realmente disponible para click
@@ -1241,7 +1268,6 @@ app.post("/get-andreani-token", async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Ya no requerimos que vengan en el body, pueden venir del .env
     console.log("🔵 Iniciando proceso /get-andreani-token...");
     const result = await getAndreaniToken(email, password);
 
