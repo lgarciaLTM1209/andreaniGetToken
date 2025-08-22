@@ -194,7 +194,7 @@ async function getAndreaniToken(email, password) {
   } catch (error) {
     console.error("❌ Error durante el proceso:", error);
     if (browser && page) {
-      await page.screenshot({ path: "error-screenshot.png" });
+      await page.screenshot({ path: "./screenshots/error-screenshot.png" });
     }
     throw error;
   } finally {
@@ -441,7 +441,7 @@ async function getSucursalId(email, password, cp) {
     await new Promise((resolve) => setTimeout(resolve, 5000));
 
     if (!ubicacionesPath) {
-      await page.screenshot({ path: "error-no-ubicaciones.png" });
+      await page.screenshot({ path: "./screenshots/error-no-ubicaciones.png" });
       throw new Error("❌ No se capturó la URL de destino (ubicacionesPath)");
     }
 
@@ -450,7 +450,7 @@ async function getSucursalId(email, password, cp) {
     };
   } catch (error) {
     console.error("❌ Error:", error);
-    if (page) await page.screenshot({ path: "error.png" });
+    if (page) await page.screenshot({ path: "./screenshots/error.png" });
     throw error;
   } finally {
     if (browser) {
@@ -969,7 +969,7 @@ async function hacerEnvio(email, password) {
   } catch (error) {
     console.error("❌ Error durante el proceso:", error);
     if (browser && page) {
-      await page.screenshot({ path: "error-hacer-envio.png" });
+      await page.screenshot({ path: "./screenshots/error-hacer-envio.png" });
     }
     throw error;
   } finally {
@@ -983,6 +983,15 @@ async function hacerEnvio(email, password) {
 /* ======================
    Endpoints HTTP
    ====================== */
+
+// Health check endpoint para Docker
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    service: "andreani-token-service"
+  });
+});
 
 app.post("/get-andreani-token", async (req, res) => {
   try {
