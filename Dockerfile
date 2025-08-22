@@ -1,46 +1,69 @@
-# Usar la versión exacta de Node.js del entorno local
-FROM node:22.15.0-alpine
+# Multi-stage build para optimizar tamaño de imagen final
+FROM node:21.2.0-slim AS builder
 
-# Instalar dependencias necesarias para Puppeteer en Alpine
-RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    freetype-dev \
-    harfbuzz \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
     ca-certificates \
-    ttf-freefont \
-    && rm -rf /var/cache/apk/*
+    && rm -rf /var/lib/apt/lists/*
 
-# Configurar variables de entorno para Puppeteer
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
-
-# Crear directorio de trabajo
 WORKDIR /app
 
-# Copiar archivos de dependencias
 COPY package*.json ./
 
-# Instalar dependencias con npm v10.9.2 (viene con Node 22.15.0)
-RUN npm ci --only=production
+RUN npm ci
 
-# Copiar el código fuente
-COPY andreani.js ./
+COPY . .
+
+RUN npm run build
+
+# Imagen final para runtime
+FROM node:21.2.0-slim AS runner
+
+# Instalar Chromium y dependencias necesarias
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium \
+    chromium-sandbox \
+    fonts-liberation \
+    libappindicator3-1 \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libdrm2 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    xdg-utils \
+    libgbm1 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configurar variables de entorno para Puppeteer con Chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    CHROMIUM_PATH=/usr/bin/chromium \
+    CHROME_BIN=/usr/bin/chromium
+
+WORKDIR /app
+
+# Copiar dependencias y código desde el stage builder
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
 
 # Crear directorio para screenshots
 RUN mkdir -p /app/screenshots
 
 # Crear usuario no-root para ejecutar la aplicación
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S andreani -u 1001
+RUN groupadd -r nodejs --gid=1001 && \
+    useradd -r -g nodejs --uid=1001 --home-dir=/app --shell=/bin/bash andreani
 
 # Cambiar permisos del directorio de trabajo
 RUN chown -R andreani:nodejs /app
 USER andreani
 
 # Exponer el puerto
-EXPOSE 3000
+EXPOSE 8080
 
 # Comando por defecto
-CMD ["node", "andreani.js"] 
+CMD ["node", "dist/app.js"] 

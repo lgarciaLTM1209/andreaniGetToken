@@ -1,24 +1,25 @@
 version: '3.8'
 
 services:
-  andreani-service:
+  puppeteer-in-docker:
     build: .
     container_name: andreani-token-service
     ports:
-      - "3000:3000"
+      - "8080:8080"
     environment:
+      NODE_ENV: "production"
+      CHROMIUM_PATH: "/usr/bin/chromium"
+      PORT: "8080"
       # Variables de entorno para las credenciales de Andreani
-      # Puedes crear un archivo .env para configurar estas variables
-      - NODE_ENV=production
-      - ANDREANI_EMAIL=${ANDREANI_EMAIL:-}
-      - ANDREANI_PASSWORD=${ANDREANI_PASSWORD:-}
+      ANDREANI_EMAIL: ${ANDREANI_EMAIL:-}
+      ANDREANI_PASSWORD: ${ANDREANI_PASSWORD:-}
     volumes:
-      # Montar el código fuente para desarrollo (opcional)
-      # Descomenta la siguiente línea si quieres hot reload durante desarrollo
-      # - ./andreani.js:/app/andreani.js:ro
-      
       # Montar directorio para screenshots de errores
       - ./screenshots:/app/screenshots
+    tmpfs:
+      # Mount tmpfs para Chromium profiles y shared memory
+      - /tmp
+      - /dev/shm
     restart: unless-stopped
     networks:
       - andreani-network
@@ -30,7 +31,7 @@ services:
           cpus: '0.5'
     # Configuración de salud del contenedor
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health", "||", "exit", "1"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health", "||", "exit", "1"]
       interval: 30s
       timeout: 10s
       retries: 3
