@@ -6,16 +6,24 @@ RUN apk add --no-cache \
     chromium \
     nss \
     freetype \
+    freetype-dev \
     harfbuzz \
     ca-certificates \
     ttf-freefont \
+    font-noto-emoji \
+    wqy-zenhei \
     && rm -rf /var/cache/apk/*
+
+# Verify chromium installation
+RUN which chromium-browser || which chromium || echo "Chromium not found in expected locations"
 
 # Tell Puppeteer to skip installing Chrome. We'll be using the installed package.
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
     NODE_ENV=production \
-    DOCKER_ENV=true
+    DOCKER_ENV=true \
+    CHROME_BIN=/usr/bin/chromium-browser \
+    CHROME_PATH=/usr/bin/chromium-browser
 
 # Create app directory
 WORKDIR /app

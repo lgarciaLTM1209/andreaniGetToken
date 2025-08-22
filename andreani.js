@@ -1,9 +1,44 @@
 // index.js
+const fs = require("fs");
+
 // Detectar si estamos en contenedor para usar puppeteer-core
 const isContainer =
   process.env.NODE_ENV === "production" ||
   process.env.DOCKER_ENV === "true" ||
   process.env.COOLIFY_APP_ID;
+
+// Función helper para encontrar el ejecutable de Chrome/Chromium
+function findChromiumExecutable() {
+  const possiblePaths = [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    process.env.CHROME_BIN,
+    process.env.CHROME_PATH,
+    "/usr/bin/chromium-browser",
+    "/usr/bin/chromium",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/google-chrome",
+    "/snap/bin/chromium",
+    "chromium-browser",
+    "chromium",
+  ];
+
+  // En contenedores, verificar si el archivo existe
+  for (const path of possiblePaths) {
+    if (path) {
+      try {
+        if (fs.existsSync(path)) {
+          console.log(`✅ Encontré Chrome en: ${path}`);
+          return path;
+        }
+      } catch (error) {
+        // Ignorar errores de acceso a archivos
+      }
+    }
+  }
+
+  console.log("⚠️ No se encontró Chrome en ninguna ruta conocida");
+  return null;
+}
 
 const puppeteer = isContainer
   ? require("puppeteer-core")
@@ -188,8 +223,14 @@ async function getAndreaniToken(email, password) {
 
     // En contenedores, usar el ejecutable de Chrome instalado
     if (isContainer) {
-      launchConfig.executablePath =
-        process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium-browser";
+      const chromePath = findChromiumExecutable();
+      if (chromePath) {
+        launchConfig.executablePath = chromePath;
+      } else {
+        console.log(
+          "⚠️ No se encontró Chrome, intentando sin executablePath específico..."
+        );
+      }
     }
 
     browser = await puppeteer.launch(launchConfig);
@@ -213,7 +254,7 @@ async function getAndreaniToken(email, password) {
 
     console.log("🟠 Esperando navegación post-login...");
     await page
-      .waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 })
+      .waitForNavigation({ waitUntil: "networkidle2", timeout: 60000 })
       .catch(() => {});
 
     console.log("📍 URL actual después del login:", page.url());
@@ -313,8 +354,14 @@ async function getSucursalId(email, password, cp) {
 
     // En contenedores, usar el ejecutable de Chrome instalado
     if (isContainer) {
-      launchConfig.executablePath =
-        process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium-browser";
+      const chromePath = findChromiumExecutable();
+      if (chromePath) {
+        launchConfig.executablePath = chromePath;
+      } else {
+        console.log(
+          "⚠️ No se encontró Chrome, intentando sin executablePath específico..."
+        );
+      }
     }
 
     browser = await puppeteer.launch(launchConfig);
@@ -607,8 +654,14 @@ async function hacerEnvio(email, password) {
 
     // En contenedores, usar el ejecutable de Chrome instalado
     if (isContainer) {
-      launchConfig.executablePath =
-        process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium-browser";
+      const chromePath = findChromiumExecutable();
+      if (chromePath) {
+        launchConfig.executablePath = chromePath;
+      } else {
+        console.log(
+          "⚠️ No se encontró Chrome, intentando sin executablePath específico..."
+        );
+      }
     }
 
     browser = await puppeteer.launch(launchConfig);
