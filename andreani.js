@@ -1,21 +1,11 @@
 // index.js
-"use strict";
+const puppeteer = require("puppeteer");
 require("dotenv").config();
 const express = require("express");
-const fs = require("fs").promises;
-
-// Usar puppeteer-extra con plugins GRATUITOS (configuración que funciona en Coolify)
-const puppeteer = require("puppeteer-extra");
-const StealthPlugin = require("puppeteer-extra-plugin-stealth");
-const UserAgent = require("user-agents");
 
 const app = express();
 const port = 3000;
 app.use(express.json());
-
-// Configurar plugins de puppeteer-extra (SOLO GRATUITOS)
-puppeteer.use(StealthPlugin());
-console.log("🛡️ Plugin Stealth configurado (técnicas gratuitas de evasión)");
 
 /* =========================
    Helpers de captura token
@@ -131,226 +121,6 @@ async function tryReadTokenFromStorage(page) {
   return prefer(data.localStorage) || prefer(data.sessionStorage) || null;
 }
 
-// Función para crear browser con configuración que funciona en Coolify
-async function createBrowser() {
-  console.log("🔍 === VERIFICACIÓN DEL ENTORNO ===");
-  console.log(`🐧 Sistema operativo: ${process.platform}`);
-  console.log(`📁 Directorio actual: ${process.cwd()}`);
-  console.log(`🔧 Variables de entorno relevantes:`);
-  console.log(`   - DISPLAY: ${process.env.DISPLAY || "No configurado"}`);
-  console.log(`   - DEBUG_MODE: ${process.env.DEBUG_MODE || "No configurado"}`);
-  console.log(`   - NODE_ENV: ${process.env.NODE_ENV || "No configurado"}`);
-  console.log(`   - DOCKER_ENV: ${process.env.DOCKER_ENV || "No configurado"}`);
-  console.log("🔍 === FIN VERIFICACIÓN DEL ENTORNO ===");
-
-  // Configuración del browser - equilibrada entre anti-detección y funcionalidad
-  console.log(
-    "🛡️ Configurando browser con técnicas anti-detección equilibradas..."
-  );
-
-  // Usar un user agent fijo para consistencia entre entornos
-  const fixedUA =
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-  console.log(`🎭 User Agent fijo: ${fixedUA}`);
-
-  // Viewport fijo para consistencia entre entornos
-  const fixedViewport = {
-    width: 1920,
-    height: 1080,
-    deviceScaleFactor: 1,
-    hasTouch: false,
-    isLandscape: false,
-    isMobile: false,
-  };
-  console.log(
-    `📱 Viewport fijo: ${fixedViewport.width}x${fixedViewport.height}`
-  );
-
-  const browserOptions = {
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-blink-features=AutomationControlled", // Crítico para evitar detección
-      "--disable-extensions",
-      "--disable-plugins",
-      "--disable-background-timer-throttling",
-      "--disable-backgrounding-occluded-windows",
-      "--disable-renderer-backgrounding",
-      "--disable-hang-monitor",
-      "--disable-prompt-on-repost",
-      "--disable-sync",
-      "--disable-translate",
-      "--disable-default-apps",
-      "--disable-component-extensions-with-background-pages",
-      "--disable-background-networking",
-      "--disable-component-update",
-      "--disable-client-side-phishing-detection",
-      "--disable-datasaver-prompt",
-      "--disable-domain-reliability",
-      "--disable-features=TranslateUI",
-      "--mute-audio",
-      "--no-default-browser-check",
-      "--no-pings",
-      "--password-store=basic",
-      "--use-mock-keychain",
-      // Argumentos adicionales para bypass de detección
-      "--disable-automation",
-      "--exclude-switches=enable-automation",
-      "--disable-extensions-http-throttling",
-      "--metrics-recording-only",
-      "--no-report-upload",
-      "--safebrowsing-disable-auto-update",
-    ],
-    slowMo:
-      process.env.DEBUG_MODE === "true"
-        ? 100
-        : 50 + Math.floor(Math.random() * 50), // Delay aleatorio para parecer humano
-    defaultViewport: fixedViewport,
-    ignoreDefaultArgs: ["--disable-extensions", "--enable-automation"], // Permitir extensiones
-    ignoreHTTPSErrors: true,
-    timeout: 60000,
-    devtools: false,
-  };
-
-  console.log(
-    "🚀 Intentando lanzar browser con configuración anti-detección equilibrada..."
-  );
-
-  let browser;
-  try {
-    browser = await puppeteer.launch(browserOptions);
-    console.log("🌐 Browser lanzado exitosamente");
-    return browser;
-  } catch (launchError) {
-    console.error("💥 Error al lanzar el browser:", launchError.message);
-    console.error(
-      "📍 Stack trace del error de lanzamiento:",
-      launchError.stack
-    );
-
-    // Intentar con configuración más básica para Docker
-    console.log("🔄 Intentando con configuración básica...");
-    const basicOptions = {
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-      ],
-      slowMo: process.env.DEBUG_MODE === "true" ? 100 : 0,
-      ignoreHTTPSErrors: true,
-    };
-
-    try {
-      browser = await puppeteer.launch(basicOptions);
-      console.log("🌐 Browser lanzado exitosamente con configuración básica");
-      return browser;
-    } catch (basicError) {
-      console.error(
-        "💀 Error crítico: No se pudo lanzar el browser ni con configuración básica"
-      );
-      console.error("📍 Error básico:", basicError.message);
-      throw new Error(`No se pudo lanzar el browser: ${basicError.message}`);
-    }
-  }
-}
-
-// Función para configurar página con anti-detección
-async function setupPage(page) {
-  // Usar user agent fijo para consistencia
-  const fixedUA =
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-
-  // Configuraciones anti-detección de bots - TÉCNICAS EQUILIBRADAS
-  console.log(
-    "🤖 Configurando anti-detección de bots con técnicas equilibradas..."
-  );
-
-  // Establecer user agent fijo
-  await page.setUserAgent(fixedUA);
-
-  // Configurar headers adicionales para consistencia
-  await page.setExtraHTTPHeaders({
-    "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
-    "Accept-Encoding": "gzip, deflate, br",
-    Accept:
-      "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-    Connection: "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-  });
-
-  // TÉCNICA 1: Ocultar que es un navegador automatizado
-  await page.evaluateOnNewDocument(() => {
-    // Pass webdriver check - Eliminar la propiedad webdriver
-    Object.defineProperty(navigator, "webdriver", {
-      get: () => undefined,
-    });
-
-    // Eliminar propiedades de automatización
-    delete window.webdriver;
-    delete window.__webdriver_evaluate;
-    delete window.__selenium_evaluate;
-    delete window.__webdriver_script_function;
-    delete window.__webdriver_script_func;
-    delete window.__webdriver_script_fn;
-    delete window.__fxdriver_evaluate;
-    delete window.__driver_unwrapped;
-    delete window.__webdriver_unwrapped;
-    delete window.__driver_evaluate;
-    delete window.__selenium_unwrapped;
-    delete window.__fxdriver_unwrapped;
-  });
-
-  // TÉCNICA 2: Pass chrome check - Agregar propiedades de Chrome
-  await page.evaluateOnNewDocument(() => {
-    window.chrome = {
-      runtime: {},
-      loadTimes: function () {},
-      csi: function () {},
-      app: {},
-    };
-  });
-
-  // TÉCNICA 3: Pass notifications check - Sobrescribir permisos
-  await page.evaluateOnNewDocument(() => {
-    const originalQuery = window.navigator.permissions.query;
-    return (window.navigator.permissions.query = (parameters) =>
-      parameters.name === "notifications"
-        ? Promise.resolve({ state: Notification.permission })
-        : originalQuery(parameters));
-  });
-
-  // TÉCNICA 4: Pass plugins check - Sobrescribir la propiedad plugins
-  await page.evaluateOnNewDocument(() => {
-    Object.defineProperty(navigator, "plugins", {
-      get: () => [1, 2, 3, 4, 5],
-    });
-  });
-
-  // TÉCNICA 5: Pass languages check - Sobrescribir la propiedad languages
-  await page.evaluateOnNewDocument(() => {
-    Object.defineProperty(navigator, "languages", {
-      get: () => ["es-ES", "es", "en-US", "en"],
-    });
-  });
-
-  // TÉCNICA 6: Configurar headers HTTP realistas
-  await page.setExtraHTTPHeaders({
-    "Accept-Language": "es-ES,es;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Accept-Encoding": "gzip, deflate, br",
-    Accept:
-      "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
-    "Upgrade-Insecure-Requests": "1",
-    "Cache-Control": "max-age=0",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-User": "?1",
-    "Sec-Fetch-Dest": "document",
-  });
-
-  console.log("✅ Configuración anti-detección equilibrada completada");
-}
-
 /* =======================================
    getAndreaniToken: login + captura token
    ======================================= */
@@ -370,9 +140,13 @@ async function getAndreaniToken(email, password) {
   let page;
 
   try {
-    browser = await createBrowser();
+    browser = await puppeteer.launch({
+      headless: false, // 👈 Cambiado para mostrar navegador
+      defaultViewport: null,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+
     page = await browser.newPage();
-    await setupPage(page);
 
     console.log("🔵 Navegando al login...");
     await page.goto("https://onboarding.andreani.com/", {
@@ -383,7 +157,7 @@ async function getAndreaniToken(email, password) {
     console.log("🔵 Completando login...");
     await page.waitForSelector("#signInName", {
       visible: true,
-      timeout: 60000,
+      timeout: 30000,
     });
     await page.type("#signInName", finalEmail, { delay: 60 });
     await page.type("#password", finalPassword, { delay: 60 });
@@ -391,64 +165,18 @@ async function getAndreaniToken(email, password) {
 
     console.log("🟠 Esperando navegación post-login...");
     await page
-      .waitForNavigation({ waitUntil: "networkidle2", timeout: 60000 })
+      .waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 })
       .catch(() => {});
 
     console.log("📍 URL actual después del login:", page.url());
-
-    // Verificar si estamos en la URL correcta o en Azure AD B2C
-    const currentUrl = page.url();
-    if (currentUrl.includes("andreanib2c.b2clogin.com")) {
-      console.log("⚠️  DETECTADO: Redirigido a Azure AD B2C");
-      console.log("🔄 Esto puede indicar que Azure AD detectó automatización");
-      console.log(
-        "🌐 Esperando a que se complete el flujo de autenticación..."
-      );
-
-      // Esperar más tiempo para que Azure AD complete el flujo
-      try {
-        await page.waitForNavigation({
-          waitUntil: "networkidle2",
-          timeout: 30000,
-        });
-        console.log("📍 Nueva URL después de Azure AD:", page.url());
-      } catch (err) {
-        console.log(
-          "⚠️  Timeout esperando navegación de Azure AD, continuando..."
-        );
-      }
-    }
-
     console.log("⏳ Pausa de 3 segundos para observar la página...");
     await new Promise((r) => setTimeout(r, 3000));
-
-    // Verificar si necesitamos manejar Azure AD B2C
-    const finalUrl = page.url();
-    if (finalUrl.includes("andreanib2c.b2clogin.com")) {
-      console.log(
-        "🚨 PROBLEMA: Aún estamos en Azure AD B2C después de esperar"
-      );
-      console.log(
-        "💡 Esto sugiere que Azure AD está bloqueando el acceso automatizado"
-      );
-      console.log("🔄 Intentando navegar manualmente a la página principal...");
-
-      try {
-        await page.goto("https://onboarding.andreani.com/", {
-          waitUntil: "networkidle2",
-          timeout: 30000,
-        });
-        console.log("📍 URL después de navegación manual:", page.url());
-      } catch (err) {
-        console.log("❌ Error en navegación manual:", err.message);
-      }
-    }
 
     // Hacer click en el botón "Hacer envío"
     console.log("🎯 Buscando botón 'Hacer envío'...");
     await page.waitForSelector("#hacer_envio", {
       visible: true,
-      timeout: 90000, // Timeout extendido
+      timeout: 20000,
     });
     console.log("✅ Encontré el botón 'Hacer envío', haciendo click...");
     await page.click("#hacer_envio");
@@ -497,9 +225,13 @@ async function getSucursalId(email, password, cp) {
   let ubicacionesPath = null;
 
   try {
-    browser = await createBrowser();
+    browser = await puppeteer.launch({
+      headless: false, // 👈 visible
+      defaultViewport: null,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+
     page = await browser.newPage();
-    await setupPage(page);
 
     await page.setRequestInterception(true);
     page.on("request", (request) => {
@@ -550,7 +282,7 @@ async function getSucursalId(email, password, cp) {
     console.log("🎯 Buscando botón 'Hacer envío'...");
     await page.waitForSelector("#hacer_envio", {
       visible: true,
-      timeout: 90000, // Timeout extendido
+      timeout: 20000,
     });
     console.log("✅ Encontré el botón 'Hacer envío', haciendo click...");
     await page.click("#hacer_envio");
@@ -747,9 +479,17 @@ async function hacerEnvio(email, password) {
   let authToken = null;
 
   try {
-    browser = await createBrowser();
+    browser = await puppeteer.launch({
+      headless: true,
+      defaultViewport: null,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+      ],
+    });
+
     page = await browser.newPage();
-    await setupPage(page);
 
     // Interceptar requests para capturar el token de autorización
     await page.setRequestInterception(true);
@@ -817,7 +557,7 @@ async function hacerEnvio(email, password) {
     console.log("🔵 Completando login...");
     await page.waitForSelector("#signInName", {
       visible: true,
-      timeout: 60000,
+      timeout: 30000,
     });
     await page.type("#signInName", finalEmail, { delay: 60 });
     await page.type("#password", finalPassword, { delay: 60 });
@@ -825,7 +565,7 @@ async function hacerEnvio(email, password) {
 
     console.log("🟠 Esperando navegación post-login...");
     await page
-      .waitForNavigation({ waitUntil: "networkidle2", timeout: 60000 })
+      .waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 })
       .catch(() => {});
 
     console.log("📍 URL actual después del login:", page.url());
@@ -845,104 +585,28 @@ async function hacerEnvio(email, password) {
         );
       });
 
-    // Hacer click en el botón "Hacer envío" con estrategias múltiples
+    // Hacer click en el botón "Hacer envío"
     console.log("🎯 Buscando botón 'Hacer envío'...");
 
-    // Estrategia 1: Esperar a que el botón sea visible y esté habilitado con timeout extendido
-    try {
-      await page.waitForSelector("#hacer_envio", {
-        visible: true,
-        timeout: 90000, // Timeout extendido significativamente
-      });
+    // Esperar a que el botón sea visible y esté habilitado
+    await page.waitForSelector("#hacer_envio", {
+      visible: true,
+      timeout: 30000,
+    });
 
-      // Verificar que el botón esté realmente disponible para click
-      await page.waitForFunction(
-        () => {
-          const btn = document.querySelector("#hacer_envio");
-          return btn && !btn.disabled && btn.offsetParent !== null;
-        },
-        { timeout: 10000 }
-      );
+    // Verificar que el botón esté realmente disponible para click
+    await page.waitForFunction(
+      () => {
+        const btn = document.querySelector("#hacer_envio");
+        return btn && !btn.disabled && btn.offsetParent !== null;
+      },
+      { timeout: 10000 }
+    );
 
-      console.log("⏳ Pausa adicional antes del click...");
-      await new Promise((r) => setTimeout(r, 2000));
-      console.log("✅ Encontré el botón 'Hacer envío', haciendo click...");
-      await page.click("#hacer_envio");
-    } catch (error) {
-      console.log("❌ Error esperando el botón #hacer_envio:", error.message);
-
-      // Estrategia 2: Debugging - tomar screenshot y analizar DOM
-      console.log("🔍 Analizando la página actual para debugging...");
-      await page.screenshot({ path: "debug-screenshot.png", fullPage: true });
-
-      const currentUrl = page.url();
-      console.log("📍 URL actual:", currentUrl);
-
-      // Verificar si hay elementos similares
-      const similarButtons = await page.evaluate(() => {
-        const buttons = Array.from(
-          document.querySelectorAll('button, [role="button"], a, div[onclick]')
-        );
-        return buttons
-          .filter(
-            (btn) =>
-              btn.textContent && btn.textContent.toLowerCase().includes("envío")
-          )
-          .map((btn) => ({
-            tagName: btn.tagName,
-            id: btn.id,
-            className: btn.className,
-            textContent: btn.textContent.trim(),
-            visible: btn.offsetParent !== null,
-          }));
-      });
-
-      console.log(
-        "🔍 Botones relacionados con 'envío' encontrados:",
-        JSON.stringify(similarButtons, null, 2)
-      );
-
-      // Intentar encontrar el botón por texto si el ID no funciona
-      const foundByText = await page.evaluate(() => {
-        const elements = Array.from(document.querySelectorAll("*"));
-        const target = elements.find(
-          (el) =>
-            el.textContent &&
-            el.textContent.toLowerCase().includes("hacer envío") &&
-            el.offsetParent !== null
-        );
-        return target
-          ? {
-              tagName: target.tagName,
-              id: target.id,
-              className: target.className,
-              textContent: target.textContent.trim(),
-            }
-          : null;
-      });
-
-      if (foundByText) {
-        console.log("✅ Encontré botón por texto:", foundByText);
-        try {
-          await page.evaluate(() => {
-            const elements = Array.from(document.querySelectorAll("*"));
-            const target = elements.find(
-              (el) =>
-                el.textContent &&
-                el.textContent.toLowerCase().includes("hacer envío") &&
-                el.offsetParent !== null
-            );
-            if (target) target.click();
-          });
-          console.log("✅ Click realizado usando estrategia de texto");
-        } catch (clickError) {
-          console.log("❌ Error en click por texto:", clickError.message);
-          throw error; // Re-lanzar el error original
-        }
-      } else {
-        throw error; // Re-lanzar el error original
-      }
-    }
+    console.log("⏳ Pausa adicional antes del click...");
+    await new Promise((r) => setTimeout(r, 2000));
+    console.log("✅ Encontré el botón 'Hacer envío', haciendo click...");
+    await page.click("#hacer_envio");
 
     console.log("⏳ Esperando que la página se actualice después del click...");
     // Esperar a que la página navegue o se actualice completamente
@@ -1324,6 +988,7 @@ app.post("/get-andreani-token", async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    // Ya no requerimos que vengan en el body, pueden venir del .env
     console.log("🔵 Iniciando proceso /get-andreani-token...");
     const result = await getAndreaniToken(email, password);
 
@@ -1391,15 +1056,6 @@ app.post("/get-sucursal-id", async (req, res) => {
       details: "Error al obtener el id de sucursal",
     });
   }
-});
-
-// Health check endpoint para Docker
-app.get("/health", (req, res) => {
-  res.status(200).json({
-    status: "OK",
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-  });
 });
 
 app.listen(port, () => {
