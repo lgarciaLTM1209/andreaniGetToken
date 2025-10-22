@@ -141,7 +141,7 @@ async function getAndreaniToken(email, password) {
 
   try {
     browser = await puppeteer.launch({
-      headless: false, // 👈 Cambiado para mostrar navegador
+      headless: true, // 👈 Cambiado para mostrar navegador
       defaultViewport: null,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
@@ -226,7 +226,7 @@ async function getSucursalId(email, password, cp) {
 
   try {
     browser = await puppeteer.launch({
-      headless: false, // 👈 visible
+      headless: true, // 👈 visible
       defaultViewport: null,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
@@ -480,7 +480,7 @@ async function hacerEnvio(email, password) {
 
   try {
     browser = await puppeteer.launch({
-      headless: false,
+      headless: true,
       defaultViewport: null,
       args: [
         "--no-sandbox",
@@ -1002,7 +1002,7 @@ async function hacerEnvioDebug(email, password) {
 
   try {
     browser = await puppeteer.launch({
-      headless: false, // 👈 Navegador en modo headless para producción
+      headless: true, // 👈 Navegador en modo headless para producción
       defaultViewport: null,
       args: [
         "--no-sandbox",
