@@ -1,10 +1,10 @@
 {
   "name": "test-scrapper",
   "version": "1.0.0",
-  "main": "andreaniV3.js",
+  "main": "andreaniV2.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node andreaniV3.js",
+    "start": "node andreaniV2.js",
     "build": "mkdir -p dist && cp andreaniV3.js dist/app.js"
   },
   "author": "",

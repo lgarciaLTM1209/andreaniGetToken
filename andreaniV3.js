@@ -1109,7 +1109,7 @@ async function hacerEnvioDebug(email, password) {
     // Verificar si ya estamos en la página correcta
     const currentUrl = page.url();
     console.log("📍 URL actual:", currentUrl);
-    
+
     if (currentUrl.includes("hacer-envio")) {
       console.log("✅ Ya estamos en la página de hacer envío");
     } else {
@@ -1119,7 +1119,7 @@ async function hacerEnvioDebug(email, password) {
         visible: true,
         timeout: 30000,
       });
-      
+
       console.log("✅ Encontré el botón 'Hacer envío', haciendo click...");
       await page.click("#hacer_envio");
     }
@@ -1130,11 +1130,18 @@ async function hacerEnvioDebug(email, password) {
     // Verificar si ya estamos en la página de selección de servicios
     const isInServiceSelection = await page.evaluate(() => {
       const cards = document.querySelectorAll("div.MuiCard-root");
-      return cards.length > 0 && document.querySelector('h1, h2, h3')?.innerText?.includes('¿Qué vas a enviar?');
+      return (
+        cards.length > 0 &&
+        document
+          .querySelector("h1, h2, h3")
+          ?.innerText?.includes("¿Qué vas a enviar?")
+      );
     });
 
     if (isInServiceSelection) {
-      console.log("✅ Ya estamos en la página de selección de servicios, saltando click en servicio--paquetes");
+      console.log(
+        "✅ Ya estamos en la página de selección de servicios, saltando click en servicio--paquetes"
+      );
     } else {
       // Click en #servicio--paquetes solo si no estamos en la página de servicios
       console.log("🎯 Buscando botón 'servicio--paquetes'...");
@@ -1143,143 +1150,170 @@ async function hacerEnvioDebug(email, password) {
         timeout: 20000,
       });
 
-      console.log("✅ Encontré el botón 'servicio--paquetes', haciendo click...");
+      console.log(
+        "✅ Encontré el botón 'servicio--paquetes', haciendo click..."
+      );
       await page.click("#servicio--paquetes");
 
-      console.log("⏳ Pausa de 3 segundos después del click en servicio--paquetes...");
+      console.log(
+        "⏳ Pausa de 3 segundos después del click en servicio--paquetes..."
+      );
       await new Promise((r) => setTimeout(r, 3000));
     }
 
     // Detectar en qué paso estamos
     console.log("🔍 Detectando en qué paso estamos...");
     console.log("📍 URL actual:", page.url());
-    
+
     // Verificar múltiples indicadores de dónde estamos
     const pageState = await page.evaluate(() => {
-      const originButton = document.querySelector("#OriginBranchOffice-siguiente--paquetes");
+      const originButton = document.querySelector(
+        "#OriginBranchOffice-siguiente--paquetes"
+      );
       const cards = document.querySelectorAll("div.MuiCard-root");
       const serviceButton = document.querySelector("#servicio--paquetes");
-      
+
       return {
         hasOriginButton: originButton !== null,
         hasCards: cards.length > 0,
         hasServiceButton: serviceButton !== null,
         url: window.location.href,
-        cardsCount: cards.length
+        cardsCount: cards.length,
       };
     });
-    
+
     console.log("🔍 Estado de la página:", pageState);
-    
+
     if (pageState.hasOriginButton) {
       console.log("✅ Ya estamos en la página de sucursal origen");
       console.log("⏳ Esperando a que la página cargue completamente...");
-      
+
       // Esperar a que la página esté completamente cargada
-      await page.waitForFunction(() => {
-        const button = document.querySelector("#OriginBranchOffice-siguiente--paquetes");
-        return button && !button.disabled && button.offsetParent !== null;
-      }, { timeout: 15000 });
-      
+      await page.waitForFunction(
+        () => {
+          const button = document.querySelector(
+            "#OriginBranchOffice-siguiente--paquetes"
+          );
+          return button && !button.disabled && button.offsetParent !== null;
+        },
+        { timeout: 15000 }
+      );
+
       console.log("✅ Página de origen completamente cargada");
     } else if (pageState.hasCards) {
-      console.log("✅ Detectadas cards de servicios, procediendo con selección...");
+      console.log(
+        "✅ Detectadas cards de servicios, procediendo con selección..."
+      );
     } else {
-      console.log("⚠️ No se detectaron ni botón de origen ni cards, esperando...");
+      console.log(
+        "⚠️ No se detectaron ni botón de origen ni cards, esperando..."
+      );
       await new Promise((r) => setTimeout(r, 3000));
     }
-    
+
     // Solo buscar cards si no estamos en la página de origen
     if (!pageState.hasOriginButton) {
       // Card "Paquetes – Hasta 50 kg"
       console.log("🎯 Buscando card de 'Paquetes - Hasta 50 kg'...");
 
-    // Primero esperamos a que aparezcan las cards en general
-    await page.waitForSelector("div.MuiCard-root", {
-      visible: true,
-      timeout: 25000, // Aumentado a 25 segundos
-    });
+      // Primero esperamos a que aparezcan las cards en general
+      await page.waitForSelector("div.MuiCard-root", {
+        visible: true,
+        timeout: 25000, // Aumentado a 25 segundos
+      });
 
-    // Luego esperamos específicamente por la card de Paquetes
-    await page.waitForFunction(
-      () => {
+      // Luego esperamos específicamente por la card de Paquetes
+      await page.waitForFunction(
+        () => {
+          const cards = document.querySelectorAll("div.MuiCard-root");
+          return [...cards].some(
+            (card) =>
+              card.innerText.includes("Paquetes") &&
+              card.innerText.includes("Hasta 50 kg")
+          );
+        },
+        { timeout: 20000 } // Aumentado a 20 segundos
+      );
+
+      console.log("✅ Encontré la card de Paquetes, haciendo click...");
+
+      // Scroll primero y luego click
+      await page.evaluate(() => {
         const cards = document.querySelectorAll("div.MuiCard-root");
-        return [...cards].some(
-          (card) =>
-            card.innerText.includes("Paquetes") &&
-            card.innerText.includes("Hasta 50 kg")
-        );
-      },
-      { timeout: 20000 } // Aumentado a 20 segundos
-    );
-
-    console.log("✅ Encontré la card de Paquetes, haciendo click...");
-
-    // Scroll primero y luego click
-    await page.evaluate(() => {
-      const cards = document.querySelectorAll("div.MuiCard-root");
-      for (const el of cards) {
-        if (
-          el.innerText.includes("Paquetes") &&
-          el.innerText.includes("Hasta 50 kg")
-        ) {
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-          return true;
+        for (const el of cards) {
+          if (
+            el.innerText.includes("Paquetes") &&
+            el.innerText.includes("Hasta 50 kg")
+          ) {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+            return true;
+          }
         }
-      }
-      return false;
-    });
+        return false;
+      });
 
-    // Esperar un poco para que termine el scroll
-    await new Promise((r) => setTimeout(r, 2000)); // Aumentado a 2 segundos
+      // Esperar un poco para que termine el scroll
+      await new Promise((r) => setTimeout(r, 2000)); // Aumentado a 2 segundos
 
-    // Ahora hacer el click
-    await page.evaluate(() => {
-      const cards = document.querySelectorAll("div.MuiCard-root");
-      for (const el of cards) {
-        if (
-          el.innerText.includes("Paquetes") &&
-          el.innerText.includes("Hasta 50 kg")
-        ) {
-          el.click();
-          return true;
+      // Ahora hacer el click
+      await page.evaluate(() => {
+        const cards = document.querySelectorAll("div.MuiCard-root");
+        for (const el of cards) {
+          if (
+            el.innerText.includes("Paquetes") &&
+            el.innerText.includes("Hasta 50 kg")
+          ) {
+            el.click();
+            return true;
+          }
         }
-      }
-      return false;
-    });
+        return false;
+      });
 
-    console.log("⏳ Pausa de 8 segundos después del click en card Paquetes...");
-    await new Promise((r) => setTimeout(r, 8000)); // Aumentado a 8 segundos
-    
-    // Esperar a que navegue a la página de origen con más tiempo
-    console.log("⏳ Esperando navegación a página de origen...");
-    await page.waitForSelector("#OriginBranchOffice-siguiente--paquetes", {
-      visible: true,
-      timeout: 30000, // Aumentado a 30 segundos
-    });
-    
-    // Esperar a que la página esté completamente cargada
-    await page.waitForFunction(() => {
-      const button = document.querySelector("#OriginBranchOffice-siguiente--paquetes");
-      return button && !button.disabled && button.offsetParent !== null;
-    }, { timeout: 20000 }); // Aumentado a 20 segundos
-    
-    console.log("✅ Página de origen completamente cargada");
+      console.log(
+        "⏳ Pausa de 8 segundos después del click en card Paquetes..."
+      );
+      await new Promise((r) => setTimeout(r, 8000)); // Aumentado a 8 segundos
+
+      // Esperar a que navegue a la página de origen con más tiempo
+      console.log("⏳ Esperando navegación a página de origen...");
+      await page.waitForSelector("#OriginBranchOffice-siguiente--paquetes", {
+        visible: true,
+        timeout: 30000, // Aumentado a 30 segundos
+      });
+
+      // Esperar a que la página esté completamente cargada
+      await page.waitForFunction(
+        () => {
+          const button = document.querySelector(
+            "#OriginBranchOffice-siguiente--paquetes"
+          );
+          return button && !button.disabled && button.offsetParent !== null;
+        },
+        { timeout: 20000 }
+      ); // Aumentado a 20 segundos
+
+      console.log("✅ Página de origen completamente cargada");
     }
 
     // ORIGEN - Buscar botón siguiente de origen
     console.log("🟠 Buscando botón siguiente de sucursal origen...");
-    
+
     // Pausa fija de 10 segundos para asegurar carga completa
     console.log("⏳ Pausa de 10 segundos para asegurar carga completa...");
     await new Promise((r) => setTimeout(r, 10000));
-    
+
     // Verificar que el botón esté disponible para click
-    await page.waitForFunction(() => {
-      const button = document.querySelector("#OriginBranchOffice-siguiente--paquetes");
-      return button && !button.disabled && button.offsetParent !== null;
-    }, { timeout: 10000 });
-    
+    await page.waitForFunction(
+      () => {
+        const button = document.querySelector(
+          "#OriginBranchOffice-siguiente--paquetes"
+        );
+        return button && !button.disabled && button.offsetParent !== null;
+      },
+      { timeout: 10000 }
+    );
+
     console.log("✅ Botón siguiente de origen encontrado y habilitado");
     console.log("🎯 Haciendo click en 'Siguiente' de origen...");
     await page.click("#OriginBranchOffice-siguiente--paquetes");
@@ -1289,19 +1323,22 @@ async function hacerEnvioDebug(email, password) {
 
     // CARGA MANUAL
     console.log("🎯 Buscando opción 'Carga manual'...");
-    await page.waitForSelector("#carga_manual--paquetes", { 
+    await page.waitForSelector("#carga_manual--paquetes", {
       visible: true,
-      timeout: 20000 
+      timeout: 20000,
     });
-    
+
     // Verificar que el elemento esté disponible para click
-    await page.waitForFunction(() => {
-      const element = document.querySelector("#carga_manual--paquetes");
-      return element && !element.disabled && element.offsetParent !== null;
-    }, { timeout: 10000 });
-    
+    await page.waitForFunction(
+      () => {
+        const element = document.querySelector("#carga_manual--paquetes");
+        return element && !element.disabled && element.offsetParent !== null;
+      },
+      { timeout: 10000 }
+    );
+
     console.log("✅ Elemento 'Carga manual' encontrado y habilitado");
-    
+
     // Scroll al elemento antes de hacer click
     await page.evaluate(() => {
       const element = document.querySelector("#carga_manual--paquetes");
@@ -1309,26 +1346,28 @@ async function hacerEnvioDebug(email, password) {
         element.scrollIntoView({ behavior: "smooth", block: "center" });
       }
     });
-    
+
     // Esperar un poco después del scroll
     await new Promise((r) => setTimeout(r, 1000));
-    
+
     console.log("🎯 Haciendo click en 'Carga manual'...");
     await page.click("#carga_manual--paquetes");
 
     console.log("⏳ Pausa de 5 segundos después de carga manual...");
     await new Promise((r) => setTimeout(r, 5000));
-    
+
     // Verificar que el click funcionó
     const cargaManualSelected = await page.evaluate(() => {
       const element = document.querySelector("#carga_manual--paquetes");
-      return element && element.getAttribute('data-selected') === 'true';
+      return element && element.getAttribute("data-selected") === "true";
     });
-    
+
     if (cargaManualSelected) {
       console.log("✅ 'Carga manual' seleccionado correctamente");
     } else {
-      console.log("⚠️ 'Carga manual' no se seleccionó, intentando nuevamente...");
+      console.log(
+        "⚠️ 'Carga manual' no se seleccionó, intentando nuevamente..."
+      );
       await page.click("#carga_manual--paquetes");
       await new Promise((r) => setTimeout(r, 2000));
     }
@@ -1409,7 +1448,9 @@ async function hacerEnvioDebug(email, password) {
       if (sucursalDiv) sucursalDiv.click();
     });
 
-    console.log("⏳ Pausa de 2 segundos después de seleccionar 'A sucursal'...");
+    console.log(
+      "⏳ Pausa de 2 segundos después de seleccionar 'A sucursal'..."
+    );
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     await page.waitForSelector("#DeliveryMethod-siguiente--paquetes", {
@@ -1425,7 +1466,9 @@ async function hacerEnvioDebug(email, password) {
       timeout: 15000,
     });
 
-    console.log("✅ Opciones de sucursales cargadas, seleccionando la primera...");
+    console.log(
+      "✅ Opciones de sucursales cargadas, seleccionando la primera..."
+    );
     await page.click("div.Branches_paper__MWRtc:nth-child(1)");
 
     console.log("⏳ Pausa de 2 segundos después de seleccionar sucursal...");
@@ -1489,55 +1532,75 @@ async function hacerEnvioDebug(email, password) {
     if (authToken) {
       console.log("✅ Token capturado exitosamente!");
       console.log("🔑 Token completo:", authToken);
-      
+
       // Decodificar el token JWT
       let decodedToken = null;
       try {
-        const tokenPayload = authToken.replace('Bearer ', '');
-        const base64Payload = tokenPayload.split('.')[1];
-        const decodedPayload = Buffer.from(base64Payload, 'base64').toString('utf-8');
+        const tokenPayload = authToken.replace("Bearer ", "");
+        const base64Payload = tokenPayload.split(".")[1];
+        const decodedPayload = Buffer.from(base64Payload, "base64").toString(
+          "utf-8"
+        );
         decodedToken = JSON.parse(decodedPayload);
         console.log("🔓 Token decodificado:", decodedToken);
       } catch (error) {
         console.log("⚠️ Error al decodificar el token:", error.message);
       }
-      
+
       // Crear estructura de respuesta
       const tokenData = {
         token: authToken,
         decoded: decodedToken,
         url: page.url(),
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
-      
+
       console.log("📦 Datos del token preparados:", tokenData);
-      
+
       // Esperar 10 segundos para asegurar que se capture la respuesta del POST
-      console.log("⏳ Esperando 10 segundos para capturar respuesta del POST...");
+      console.log(
+        "⏳ Esperando 10 segundos para capturar respuesta del POST..."
+      );
       await new Promise((r) => setTimeout(r, 10000));
-      
+
       // Intentar hacer DELETE del pedido si tenemos envioId
       let deleteResult = { success: false, error: "No se encontró envioId" };
-      if (responseData && responseData.envios && responseData.envios[0] && responseData.envios[0].id) {
+      if (
+        responseData &&
+        responseData.envios &&
+        responseData.envios[0] &&
+        responseData.envios[0].id
+      ) {
         const envioId = responseData.envios[0].id;
         console.log("🗑️ Eliminando pedido con envioId:", envioId);
         try {
-          const deleteResponse = await page.evaluate(async (envioId, token) => {
-            const response = await fetch(`https://pymes-api.andreani.com/api/v1/Envios/${envioId}`, {
-              method: 'DELETE',
-              headers: {
-                'Authorization': token,
-                'Content-Type': 'application/json'
+          const deleteResponse = await page.evaluate(
+            async (envioId, token) => {
+              const response = await fetch(
+                `https://pymes-api.andreani.com/api/v1/Envios/${envioId}`,
+                {
+                  method: "DELETE",
+                  headers: {
+                    Authorization: token,
+                    "Content-Type": "application/json",
+                  },
+                }
+              );
+
+              if (response.ok) {
+                return { success: true, status: response.status };
+              } else {
+                return {
+                  success: false,
+                  status: response.status,
+                  error: await response.text(),
+                };
               }
-            });
-            
-            if (response.ok) {
-              return { success: true, status: response.status };
-            } else {
-              return { success: false, status: response.status, error: await response.text() };
-            }
-          }, envioId, authToken);
-          
+            },
+            envioId,
+            authToken
+          );
+
           deleteResult = deleteResponse;
           if (deleteResponse.success) {
             console.log("✅ Pedido eliminado exitosamente");
@@ -1551,7 +1614,7 @@ async function hacerEnvioDebug(email, password) {
       } else {
         console.log("⚠️ No se pudo obtener envioId para eliminar el pedido");
       }
-      
+
       // Siempre devolver el token, independientemente del resultado del DELETE
       return {
         success: true,
@@ -1563,7 +1626,7 @@ async function hacerEnvioDebug(email, password) {
         envioId: responseData?.envios?.[0]?.id || null,
         urlPedidoId: urlPedidoId || null,
         responseData: responseData,
-        deleteResult: deleteResult
+        deleteResult: deleteResult,
       };
     } else {
       console.log("⚠️ No se pudo capturar el token en el tiempo esperado");
@@ -1573,7 +1636,7 @@ async function hacerEnvioDebug(email, password) {
         totalTokens: 0,
         loginExitoso: false,
         message: "No se pudo capturar el token de autorización",
-        error: "Token no capturado"
+        error: "Token no capturado",
       };
     }
   } catch (error) {
@@ -1691,5 +1754,5 @@ app.post("/hacer-envio", async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`🚀 Servidor escuchando en http://localhost:${port}`);
+  console.log(`🚀 Servidor escuchando ESTE en http://localhost:${port}`);
 });
