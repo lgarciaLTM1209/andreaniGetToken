@@ -31,6 +31,16 @@ function decodeJWT(token) {
   }
 }
 
+function extractAccessTokenFromUrl(url) {
+  if (!url) return null;
+  try {
+    const match = url.match(/[?#&]access_token=([^&#]+)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
 
 
 
@@ -53,6 +63,77 @@ async function hacerEnvio(email, password) {
   let page;
   let capturedTokens = [];
   let seenTokens = new Set(); // Para evitar duplicados
+
+  const recordToken = (tokenValue, source = "request-header", originUrl) => {
+    if (!tokenValue) return;
+    const normalized =
+      tokenValue.startsWith("Bearer ") ? tokenValue : `Bearer ${tokenValue}`;
+    if (seenTokens.has(normalized)) return;
+
+    const decodedToken = decodeJWT(normalized);
+
+    if (decodedToken && decodedToken.iss === "PymeBackend-WebApi") {
+      console.log(
+        `🔑 Token Bearer válido (${source}) encontrado: ${normalized.substring(
+          0,
+          30
+        )}...`
+      );
+
+      seenTokens.add(normalized);
+      capturedTokens.push({
+        token: normalized,
+        decoded: decodedToken,
+        url: originUrl || null,
+        source,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  };
+
+  const checkUrlForToken = (url, source) => {
+    const urlToken = extractAccessTokenFromUrl(url);
+    if (urlToken) {
+      recordToken(urlToken, source, url);
+    }
+  };
+
+  const captureTokensFromStorage = async (source) => {
+    if (!page) return;
+    try {
+      const storageTokens = await page.evaluate(() => {
+        const results = [];
+        const looksLikeJwt = (val) =>
+          typeof val === "string" && val.split(".").length === 3;
+
+        const collect = (storage, storageName) => {
+          if (!storage) return;
+          for (let i = 0; i < storage.length; i++) {
+            const key = storage.key(i);
+            const value = storage.getItem(key);
+            if (looksLikeJwt(value)) {
+              results.push({ token: value, storage: storageName, key });
+            }
+          }
+        };
+
+        try {
+          collect(window.localStorage, "localStorage");
+        } catch {}
+        try {
+          collect(window.sessionStorage, "sessionStorage");
+        } catch {}
+
+        return results;
+      });
+
+      storageTokens.forEach(({ token, storage, key }) => {
+        recordToken(token, `${source}:${storage}.${key}`, page.url());
+      });
+    } catch (error) {
+      console.warn("⚠️ No se pudo leer storage para tokens:", error.message);
+    }
+  };
 
   try {
     console.log("🔍 Iniciando Puppeteer...");
@@ -77,6 +158,10 @@ async function hacerEnvio(email, password) {
 
     page = await browser.newPage();
 
+    page.on("framenavigated", (frame) => {
+      checkUrlForToken(frame.url(), "frame-nav");
+    });
+
     // Configurar viewport de la página (como en el original)
     await page.setViewport({
       width: 1920,
@@ -91,20 +176,7 @@ async function hacerEnvio(email, password) {
       
       // Verificar si la request tiene Authorization header con Bearer token
       if (headers.authorization && headers.authorization.startsWith("Bearer ")) {
-        const token = headers.authorization;
-        const decodedToken = decodeJWT(token);
-        
-        // Verificar si el token es del issuer correcto Y no lo hemos visto antes
-        if (decodedToken && decodedToken.iss === "PymeBackend-WebApi" && !seenTokens.has(token)) {
-          console.log("🔑 Token Bearer válido encontrado:", token.substring(0, 30) + "...");
-          seenTokens.add(token); // Marcar como visto
-          capturedTokens.push({
-            token: token,
-            decoded: decodedToken,
-            url: request.url(),
-            timestamp: new Date().toISOString()
-          });
-        }
+        recordToken(headers.authorization, "request-header", request.url());
       }
       
       request.continue();
@@ -133,12 +205,14 @@ async function hacerEnvio(email, password) {
       .catch(() => {});
 
     console.log("📍 URL actual después del login:", page.url());
+    checkUrlForToken(page.url(), "post-login-url");
     console.log("⏳ Pausa de 3 segundos para observar la página...");
     await new Promise((r) => setTimeout(r, 3000));
     
     // Esperar un poco más para que se generen requests con tokens
     console.log("⏳ Esperando requests con tokens Bearer...");
     await new Promise(resolve => setTimeout(resolve, 10000));
+    await captureTokensFromStorage("post-wait-storage");
 
     console.log(`🎯 Total de tokens capturados: ${capturedTokens.length}`);
     
