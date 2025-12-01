@@ -1,47 +1,14 @@
-# Usar imagen base de Node.js slim
-FROM node:21.2.0-slim
-
-# Instalar dependencias del sistema necesarias para Playwright
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget \
-    ca-certificates \
-    fonts-liberation \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libdrm2 \
-    libgbm1 \
-    libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxkbcommon0 \
-    libxrandr2 \
-    xdg-utils \
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    libcairo2 \
-    libgdk-pixbuf2.0-0 \
-    libx11-xcb1 \
-    libxcb1 \
-    libxshmfence1 \
-    && rm -rf /var/lib/apt/lists/*
+# Usar la imagen oficial de Playwright (ya incluye navegadores)
+FROM mcr.microsoft.com/playwright:v1.49.0-noble
 
 WORKDIR /app
 
 # Copiar archivos de dependencias
 COPY package*.json ./
 
-# Instalar dependencias de Node.js
+# Instalar dependencias de Node.js (sin descargar navegadores, ya vienen en la imagen)
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 RUN npm ci --omit=dev
-
-# Instalar navegadores de Playwright (solo Chromium)
-RUN npx playwright install chromium
-RUN npx playwright install-deps chromium
 
 # Copiar el código fuente
 COPY andreaniPlaywright.js ./
