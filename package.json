@@ -1,10 +1,11 @@
 {
   "name": "test-scrapper",
   "version": "1.0.0",
-  "main": "andreaniV2.js",
+  "main": "andreaniPlaywright.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node andreaniV2.js",
+    "start": "node andreaniPlaywright.js",
+    "start:playwright": "node andreaniPlaywright.js",
     "build": "mkdir -p dist && cp andreaniV3.js dist/app.js"
   },
   "author": "",
@@ -14,7 +15,8 @@
     "chrome-aws-lambda": "^10.1.0",
     "dotenv": "^17.2.1",
     "express": "^4.21.2",
-    "puppeteer-core": "^10.4.0",
-    "puppeteer": "^24.4.0"
+    "playwright": "^1.57.0",
+    "puppeteer": "^24.4.0",
+    "puppeteer-core": "^10.4.0"
   }
 }
